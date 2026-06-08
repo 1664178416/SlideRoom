@@ -38,6 +38,7 @@ import { type TranslationKey, usePreferences } from "@/lib/preferences";
 import type { DeckContextQuality, SlideContextStats } from "@/lib/upload-contract";
 
 type TopBarProps = {
+  aiSettingsOpen: boolean;
   contextQuality: DeckContextQuality;
   contextStats: SlideContextStats;
   deckFileName: string;
@@ -48,8 +49,10 @@ type TopBarProps = {
   railOpen: boolean;
   settingsOpen: boolean;
   onExport: () => void;
+  onCloseAISettings: () => void;
   onCloseSettings: () => void;
   onOpenCommandMenu: () => void;
+  onToggleAISettings: () => void;
   onToggleInspector: () => void;
   onToggleRail: () => void;
   onToggleSettings: () => void;
@@ -89,15 +92,18 @@ function subscribeCommandShortcut() {
 }
 
 export function TopBar({
+  aiSettingsOpen,
   contextQuality,
   contextStats,
   deckFileName,
   deckTitle,
   exportReady,
   inspectorOpen,
+  onCloseAISettings,
   onCloseSettings,
   onExport,
   onOpenCommandMenu,
+  onToggleAISettings,
   onToggleInspector,
   onToggleRail,
   onToggleSettings,
@@ -121,11 +127,11 @@ export function TopBar({
   const ExportIcon = exportReady ? CheckCircle2 : Download;
   const railLabel = railOpen ? t("workspace.hideSlideRail") : t("workspace.showSlideRail");
   const inspectorLabel = inspectorOpen ? t("workspace.hideInspector") : t("workspace.showInspector");
-  const exportLabel = exportReady ? t("workspace.exported") : t("common.export");
+  const exportLabel = exportReady ? t("workspace.exported") : t("common.exportDeckNotes");
   const aiConfigured = aiProviderConfig.apiKey.length > 0 && aiProviderConfig.baseUrl.length > 0;
 
   useEffect(() => {
-    if (!settingsOpen) return;
+    if (!settingsOpen && !aiSettingsOpen) return;
 
     function handleDocumentClick(event: MouseEvent) {
       const eventPath = event.composedPath();
@@ -134,13 +140,14 @@ export function TopBar({
         : false;
 
       if (!clickedInsideControls) {
+        onCloseAISettings();
         onCloseSettings();
       }
     }
 
     document.addEventListener("click", handleDocumentClick);
     return () => document.removeEventListener("click", handleDocumentClick);
-  }, [onCloseSettings, settingsOpen]);
+  }, [aiSettingsOpen, onCloseAISettings, onCloseSettings, settingsOpen]);
 
   useEffect(() => {
     const restoreTimerId = window.setTimeout(() => {
@@ -266,13 +273,16 @@ export function TopBar({
         </Button>
         <PreferencesControls className="hidden rounded-md border border-border bg-background/[0.44] p-1 dark:bg-background/[0.14] xl:flex" />
         <Button
+          aria-controls={aiSettingsOpen ? "workspace-ai-settings-panel" : undefined}
+          aria-expanded={aiSettingsOpen}
+          aria-haspopup="dialog"
           aria-label={t("settings.aiProvider")}
           data-ai-provider-settings="true"
-          onClick={onToggleSettings}
+          onClick={onToggleAISettings}
           size="sm"
           title={t("settings.aiProvider")}
           type="button"
-          variant={settingsOpen ? "secondary" : "ghost"}
+          variant={aiSettingsOpen ? "secondary" : "ghost"}
         >
           <Bot className="h-4 w-4" />
           <span className="hidden sm:inline">{t("settings.aiShort")}</span>
@@ -312,28 +322,29 @@ export function TopBar({
         </Button>
 
         <AnimatePresence>
-          {settingsOpen && (
+          {aiSettingsOpen && (
             <motion.div
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              aria-label={t("common.settings")}
+              aria-label={t("settings.aiProvider")}
               className="absolute right-0 top-[calc(100%+0.5rem)] z-50 max-h-[calc(100vh-5rem)] w-full overflow-y-auto rounded-md border border-border bg-background shadow-[0_22px_60px_rgba(15,23,42,0.2)] backdrop-blur-xl dark:bg-secondary sm:right-3 sm:w-[min(430px,calc(100vw-1.5rem))]"
-              data-settings-panel="true"
+              data-ai-settings-panel="true"
               exit={{ opacity: 0, y: -4, scale: 0.985 }}
-              id="workspace-settings-panel"
+              id="workspace-ai-settings-panel"
               initial={{ opacity: 0, y: -4, scale: 0.985 }}
               role="dialog"
               transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
             >
               <div className="flex items-center justify-between gap-3 border-b border-border/[0.72] px-3 py-2.5">
                 <div className="min-w-0">
-                  <div className="text-[11px] font-semibold uppercase text-muted-foreground">
-                    {t("common.settings")}
+                  <div className="flex items-center gap-2 text-[11px] font-semibold uppercase text-muted-foreground">
+                    <Bot className="h-3.5 w-3.5" />
+                    {t("settings.aiProvider")}
                   </div>
-                  <div className="truncate text-sm font-semibold">{deckTitle}</div>
+                  <div className="mt-1 truncate text-sm font-semibold">{deckTitle}</div>
                 </div>
                 <Button
                   aria-label={t("common.close")}
-                  onClick={onCloseSettings}
+                  onClick={onCloseAISettings}
                   size="icon"
                   title={t("common.close")}
                   type="button"
@@ -343,12 +354,6 @@ export function TopBar({
                 </Button>
               </div>
               <div className="space-y-2.5 p-3">
-                <div className="rounded-md border border-border bg-background/[0.54] px-3 py-2 dark:bg-background/[0.14]">
-                  <div className="mb-2 text-[11px] font-semibold uppercase text-muted-foreground">
-                    {t("workspace.appearance")}
-                  </div>
-                  <PreferencesControls compact={false} className="justify-between" />
-                </div>
                 <div className="rounded-md border border-border bg-background/[0.54] p-3 dark:bg-background/[0.14]">
                   <div className="mb-2.5 flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -512,6 +517,46 @@ export function TopBar({
                       </p>
                     </div>
                   </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+          {settingsOpen && (
+            <motion.div
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              aria-label={t("common.settings")}
+              className="absolute right-0 top-[calc(100%+0.5rem)] z-50 max-h-[calc(100vh-5rem)] w-full overflow-y-auto rounded-md border border-border bg-background shadow-[0_22px_60px_rgba(15,23,42,0.2)] backdrop-blur-xl dark:bg-secondary sm:right-3 sm:w-[min(430px,calc(100vw-1.5rem))]"
+              data-settings-panel="true"
+              exit={{ opacity: 0, y: -4, scale: 0.985 }}
+              id="workspace-settings-panel"
+              initial={{ opacity: 0, y: -4, scale: 0.985 }}
+              role="dialog"
+              transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <div className="flex items-center justify-between gap-3 border-b border-border/[0.72] px-3 py-2.5">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-semibold uppercase text-muted-foreground">
+                    {t("common.settings")}
+                  </div>
+                  <div className="truncate text-sm font-semibold">{deckTitle}</div>
+                </div>
+                <Button
+                  aria-label={t("common.close")}
+                  onClick={onCloseSettings}
+                  size="icon"
+                  title={t("common.close")}
+                  type="button"
+                  variant="ghost"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="space-y-2.5 p-3">
+                <div className="rounded-md border border-border bg-background/[0.54] px-3 py-2 dark:bg-background/[0.14]">
+                  <div className="mb-2 text-[11px] font-semibold uppercase text-muted-foreground">
+                    {t("workspace.appearance")}
+                  </div>
+                  <PreferencesControls compact={false} className="justify-between" />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="rounded-md border border-border bg-background/[0.54] px-3 py-2 dark:bg-background/[0.14]">

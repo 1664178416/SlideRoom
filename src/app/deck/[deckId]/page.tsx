@@ -138,6 +138,7 @@ function isWheelIgnoredTarget(target: HTMLElement) {
         "textarea",
         "[contenteditable='true']",
         "[data-command-menu]",
+        "[data-ai-settings-panel]",
         "[data-settings-panel]",
         "[data-slide-notes-scroll]",
       ].join(","),
@@ -217,6 +218,7 @@ export default function DeckWorkspacePage() {
   const [currentSlideId, setCurrentSlideId] = useState<string | undefined>();
   const [zoom, setZoom] = useState(1);
   const [railQuery, setRailQuery] = useState("");
+  const [aiSettingsOpen, setAISettingsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [exportReady, setExportReady] = useState(false);
@@ -392,6 +394,7 @@ export default function DeckWorkspacePage() {
   );
 
   const focusSearch = useCallback((query = "") => {
+    setAISettingsOpen(false);
     setSettingsOpen(false);
     setRailOpen(true);
     setRailQuery(query);
@@ -460,6 +463,7 @@ export default function DeckWorkspacePage() {
 
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
+        setAISettingsOpen(false);
         setSettingsOpen(false);
         setCommandOpen((current) => !current);
         return;
@@ -483,6 +487,7 @@ export default function DeckWorkspacePage() {
       }
 
       if (event.key === "Escape") {
+        setAISettingsOpen(false);
         setSettingsOpen(false);
         return;
       }
@@ -520,21 +525,31 @@ export default function DeckWorkspacePage() {
   return (
     <div className="flex min-h-screen flex-col gap-3 overflow-y-auto p-3 lg:h-screen lg:min-h-0 lg:overflow-hidden">
       <TopBar
+        aiSettingsOpen={aiSettingsOpen}
         contextQuality={contextQuality}
         contextStats={contextStats}
         deckFileName={deckFileName}
         deckTitle={deckTitle}
         exportReady={exportReady}
         inspectorOpen={inspectorOpen}
+        onCloseAISettings={() => setAISettingsOpen(false)}
         onCloseSettings={() => setSettingsOpen(false)}
         onExport={exportDeck}
         onOpenCommandMenu={() => {
+          setAISettingsOpen(false);
           setSettingsOpen(false);
           setCommandOpen(true);
         }}
         onToggleInspector={() => setInspectorOpen((current) => !current)}
         onToggleRail={() => setRailOpen((current) => !current)}
-        onToggleSettings={() => setSettingsOpen((current) => !current)}
+        onToggleAISettings={() => {
+          setSettingsOpen(false);
+          setAISettingsOpen((current) => !current);
+        }}
+        onToggleSettings={() => {
+          setAISettingsOpen(false);
+          setSettingsOpen((current) => !current);
+        }}
         pageCount={pageCount}
         railOpen={railOpen}
         settingsOpen={settingsOpen}
