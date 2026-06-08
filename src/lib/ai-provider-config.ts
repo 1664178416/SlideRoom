@@ -1,0 +1,80 @@
+export type TokenPolicyMode = "on-demand" | "warm-current" | "full-deck";
+
+export type AIProviderConfig = {
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  tokenPolicy: TokenPolicyMode;
+};
+
+const aiProviderConfigStorageKey = "slideroom-ai-provider-config-v1";
+
+export const defaultAIProviderConfig: AIProviderConfig = {
+  apiKey: "",
+  baseUrl: "https://api.openai.com/v1",
+  model: "",
+  tokenPolicy: "on-demand",
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isTokenPolicyMode(value: unknown): value is TokenPolicyMode {
+  return value === "on-demand" || value === "warm-current" || value === "full-deck";
+}
+
+export function sanitizeAIProviderConfig(value: unknown): AIProviderConfig {
+  if (!isRecord(value)) return defaultAIProviderConfig;
+
+  return {
+    apiKey: typeof value.apiKey === "string" ? value.apiKey.trim() : "",
+    baseUrl:
+      typeof value.baseUrl === "string" && value.baseUrl.trim()
+        ? value.baseUrl.trim()
+        : defaultAIProviderConfig.baseUrl,
+    model: typeof value.model === "string" ? value.model.trim() : "",
+    tokenPolicy: isTokenPolicyMode(value.tokenPolicy)
+      ? value.tokenPolicy
+      : defaultAIProviderConfig.tokenPolicy,
+  };
+}
+
+export function readAIProviderConfig(): AIProviderConfig {
+  if (typeof window === "undefined") return defaultAIProviderConfig;
+
+  try {
+    const storedConfig = window.localStorage.getItem(aiProviderConfigStorageKey);
+    if (!storedConfig) return defaultAIProviderConfig;
+
+    return sanitizeAIProviderConfig(JSON.parse(storedConfig));
+  } catch {
+    return defaultAIProviderConfig;
+  }
+}
+
+export function writeAIProviderConfig(config: AIProviderConfig) {
+  if (typeof window === "undefined") return defaultAIProviderConfig;
+
+  const nextConfig = sanitizeAIProviderConfig(config);
+
+  try {
+    window.localStorage.setItem(aiProviderConfigStorageKey, JSON.stringify(nextConfig));
+  } catch {
+    // Storage can be unavailable in private mode or constrained environments.
+  }
+
+  return nextConfig;
+}
+
+export function clearAIProviderConfig() {
+  if (typeof window === "undefined") return defaultAIProviderConfig;
+
+  try {
+    window.localStorage.removeItem(aiProviderConfigStorageKey);
+  } catch {
+    // Storage can be unavailable in private mode or constrained environments.
+  }
+
+  return defaultAIProviderConfig;
+}

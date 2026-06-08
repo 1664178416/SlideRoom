@@ -110,7 +110,12 @@ export function SlideStage({ slide, zoom, onZoomChange }: SlideStageProps) {
       </div>
 
       <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-4 sm:p-6 lg:p-8">
-        <div className="flex h-full min-h-0 w-full items-center justify-center overflow-auto" ref={stageViewportRef}>
+        <div
+          className="flex h-full min-h-0 w-full items-center justify-center overflow-auto"
+          data-slide-flip-zone="true"
+          data-slide-stage-viewport="true"
+          ref={stageViewportRef}
+        >
           <AnimatePresence mode="wait">
             <motion.div
               animate={{ opacity: 1, scale: 1 }}
@@ -150,7 +155,10 @@ export function SlideStage({ slide, zoom, onZoomChange }: SlideStageProps) {
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2.5 text-sm leading-6 text-muted-foreground [scrollbar-gutter:stable]">
+          <div
+            className="min-h-0 flex-1 overflow-y-auto px-3 py-2.5 text-sm leading-6 text-muted-foreground [scrollbar-gutter:stable]"
+            data-slide-notes-scroll="true"
+          >
             <div className="border-l-2 border-primary/[0.24] pl-3">
               <p className="whitespace-pre-wrap break-words text-foreground/78">{speakerNotes}</p>
             </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type WheelEvent } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { TopBar } from "@/components/deck/top-bar";
 import { SlideRail } from "@/components/deck/slide-rail";
@@ -32,6 +32,9 @@ type WorkspaceState = {
 
 const workspaceStorageKey = "slideroom-workspace-state-v2";
 const completedProcessingStartedAtOffsetMs = 3600;
+const slideWheelThreshold = 72;
+const slideWheelResetMs = 220;
+const slideWheelCooldownMs = 520;
 
 function getClientTimestamp() {
   return Date.now();
@@ -117,6 +120,71 @@ async function fetchUploadedDeckSession(deckId: string) {
   return result.session;
 }
 
+function normalizeWheelDelta(delta: number, deltaMode: number) {
+  if (deltaMode === 1) return delta * 16;
+  if (deltaMode === 2) return delta * window.innerHeight;
+
+  return delta;
+}
+
+function isWheelIgnoredTarget(target: HTMLElement) {
+  return Boolean(
+    target.closest(
+      [
+        "a",
+        "button",
+        "input",
+        "select",
+        "textarea",
+        "[contenteditable='true']",
+        "[data-command-menu]",
+        "[data-settings-panel]",
+        "[data-slide-notes-scroll]",
+      ].join(","),
+    ),
+  );
+}
+
+function getScrollableAncestor(target: HTMLElement, boundary: HTMLElement) {
+  let element: HTMLElement | null = target;
+
+  while (element && element !== boundary.parentElement) {
+    const canScrollVertically = element.scrollHeight > element.clientHeight + 1;
+    const canScrollHorizontally = element.scrollWidth > element.clientWidth + 1;
+
+    if (canScrollVertically || canScrollHorizontally) {
+      return element;
+    }
+
+    if (element === boundary) break;
+    element = element.parentElement;
+  }
+
+  return null;
+}
+
+function canConsumeWheelScroll(element: HTMLElement, deltaX: number, deltaY: number) {
+  const dominantVertical = Math.abs(deltaY) >= Math.abs(deltaX);
+
+  if (dominantVertical && element.scrollHeight > element.clientHeight + 1) {
+    if (deltaY > 0) {
+      return element.scrollTop + element.clientHeight < element.scrollHeight - 1;
+    }
+
+    return element.scrollTop > 1;
+  }
+
+  if (!dominantVertical && element.scrollWidth > element.clientWidth + 1) {
+    if (deltaX > 0) {
+      return element.scrollLeft + element.clientWidth < element.scrollWidth - 1;
+    }
+
+    return element.scrollLeft > 1;
+  }
+
+  return false;
+}
+
 export default function DeckWorkspacePage() {
   const params = useParams<{ deckId?: string }>();
   const router = useRouter();
@@ -157,6 +225,11 @@ export default function DeckWorkspacePage() {
   const [restoredWorkspaceKey, setRestoredWorkspaceKey] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const exportReadyTimerRef = useRef<number | null>(null);
+  const lastSlideWheelFlipRef = useRef(0);
+  const wheelAccumulatorRef = useRef({
+    deltaY: 0,
+    lastAt: 0,
+  });
   const deckStateKey = useMemo(() => {
     return `${deckId}:${pageCount}:${deckSlides[0]?.id ?? "empty"}:${deckSlides.at(-1)?.id ?? "empty"}`;
   }, [deckId, deckSlides, pageCount]);
@@ -267,6 +340,55 @@ export default function DeckWorkspacePage() {
       }
     },
     [deckSlides],
+  );
+
+  const handleStageWheel = useCallback(
+    (event: WheelEvent<HTMLDivElement>) => {
+      if (commandOpen || event.ctrlKey || event.metaKey) return;
+
+      const target = event.target as HTMLElement | null;
+      if (!target || isWheelIgnoredTarget(target)) return;
+      if (!target.closest("[data-slide-flip-zone='true']")) return;
+
+      const deltaX = normalizeWheelDelta(event.deltaX, event.deltaMode);
+      const deltaY = normalizeWheelDelta(event.deltaY, event.deltaMode);
+      if (Math.abs(deltaY) <= Math.max(20, Math.abs(deltaX) * 1.25)) return;
+
+      const scrollableAncestor = getScrollableAncestor(target, event.currentTarget);
+      if (scrollableAncestor && canConsumeWheelScroll(scrollableAncestor, deltaX, deltaY)) return;
+
+      const now = Date.now();
+      if (now - lastSlideWheelFlipRef.current < slideWheelCooldownMs) {
+        event.preventDefault();
+        return;
+      }
+
+      if (now - wheelAccumulatorRef.current.lastAt > slideWheelResetMs) {
+        wheelAccumulatorRef.current.deltaY = 0;
+      }
+
+      wheelAccumulatorRef.current.deltaY += deltaY;
+      wheelAccumulatorRef.current.lastAt = now;
+
+      if (Math.abs(wheelAccumulatorRef.current.deltaY) < slideWheelThreshold) {
+        return;
+      }
+
+      event.preventDefault();
+      const direction = wheelAccumulatorRef.current.deltaY > 0 ? 1 : -1;
+      const nextSlideIndex = Math.min(
+        deckSlides.length - 1,
+        Math.max(0, currentSlideIndex + direction),
+      );
+
+      if (nextSlideIndex !== currentSlideIndex) {
+        selectSlideByIndex(nextSlideIndex);
+      }
+
+      wheelAccumulatorRef.current.deltaY = 0;
+      lastSlideWheelFlipRef.current = now;
+    },
+    [commandOpen, currentSlideIndex, deckSlides.length, selectSlideByIndex],
   );
 
   const focusSearch = useCallback((query = "") => {
@@ -418,7 +540,11 @@ export default function DeckWorkspacePage() {
         settingsOpen={settingsOpen}
       />
       <div className={workspaceGridClassName}>
-        <div className="order-1 min-h-0 min-w-0 lg:order-2 lg:h-full" data-workspace-stage="true">
+        <div
+          className="order-1 min-h-0 min-w-0 lg:order-2 lg:h-full"
+          data-workspace-stage="true"
+          onWheel={handleStageWheel}
+        >
           <SlideStage slide={currentSlide} zoom={zoom} onZoomChange={setZoom} />
         </div>
         {inspectorOpen && (
