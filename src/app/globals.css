@@ -1,0 +1,129 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 220 20% 98%;
+  --foreground: 222 18% 12%;
+  --muted: 220 16% 92%;
+  --muted-foreground: 220 8% 42%;
+  --border: 220 13% 83%;
+  --input: 220 13% 83%;
+  --ring: 166 42% 37%;
+  --primary: 168 42% 30%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 17% 94%;
+  --secondary-foreground: 222 18% 12%;
+  --accent: 18 58% 54%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 65% 47%;
+  --destructive-foreground: 0 0% 100%;
+  --deck-accent: 168 42% 30%;
+}
+
+.dark {
+  --background: 222 18% 9%;
+  --foreground: 38 24% 92%;
+  --muted: 222 14% 16%;
+  --muted-foreground: 220 9% 66%;
+  --border: 220 12% 24%;
+  --input: 220 12% 25%;
+  --ring: 168 45% 52%;
+  --primary: 168 43% 48%;
+  --primary-foreground: 222 18% 8%;
+  --secondary: 220 13% 18%;
+  --secondary-foreground: 38 24% 92%;
+  --accent: 18 68% 60%;
+  --accent-foreground: 222 18% 8%;
+  --destructive: 0 62% 55%;
+  --destructive-foreground: 0 0% 100%;
+  --deck-accent: 168 43% 48%;
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-color: hsl(var(--border) / 0.82) transparent;
+  scrollbar-width: thin;
+}
+
+html {
+  min-height: 100%;
+  background: hsl(var(--background));
+}
+
+body {
+  min-height: 100%;
+  margin: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(245, 247, 250, 0.95)),
+    hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  letter-spacing: 0;
+  transition: background-color 220ms ease, color 220ms ease;
+}
+
+.dark body {
+  background:
+    linear-gradient(180deg, rgba(24, 27, 33, 0.92), rgba(15, 17, 22, 0.98)),
+    hsl(var(--background));
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: hsl(var(--primary) / 0.18);
+}
+
+*::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: hsl(var(--border) / 0.82);
+  background-clip: content-box;
+  border: 2px solid transparent;
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.52);
+  background-clip: content-box;
+}
+
+.glass-panel {
+  border: 1px solid hsl(var(--border) / 0.86);
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.72) inset;
+  backdrop-filter: blur(18px);
+}
+
+.dark .glass-panel {
+  background: rgba(24, 28, 36, 0.68);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+}
+
+.deck-accent-ring {
+  box-shadow: 0 0 0 1px hsl(var(--deck-accent) / 0.44), 0 8px 28px hsl(var(--deck-accent) / 0.12);
+}
+
+.theme-transition,
+.theme-transition *,
+.theme-transition *::before,
+.theme-transition *::after {
+  transition:
+    background-color 240ms ease,
+    border-color 240ms ease,
+    box-shadow 240ms ease,
+    color 240ms ease,
+    opacity 180ms ease;
+}
