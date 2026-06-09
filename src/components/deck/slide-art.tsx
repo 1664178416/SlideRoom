@@ -1,5 +1,7 @@
 "use client";
 
+import Image from "next/image";
+import { useState } from "react";
 import { FileText, StickyNote } from "lucide-react";
 import { Slide } from "@/lib/mock-data";
 import {
@@ -24,10 +26,18 @@ type SlideArtProps = {
   slide: Slide;
   compact?: boolean;
   className?: string;
+  priority?: boolean;
 };
 
-export function SlideArt({ slide, compact = false, className }: SlideArtProps) {
+export function SlideArt({ slide, compact = false, className, priority = false }: SlideArtProps) {
   const { language, t } = usePreferences();
+  const candidateRenderedImageUrl = compact ? slide.thumbnailUrl ?? slide.imageUrl : slide.imageUrl;
+  const [failedRenderedImage, setFailedRenderedImage] = useState<{ slideId: string; url: string } | null>(null);
+  const renderedImageUrl =
+    candidateRenderedImageUrl &&
+    !(failedRenderedImage?.slideId === slide.id && failedRenderedImage.url === candidateRenderedImageUrl)
+      ? candidateRenderedImageUrl
+      : undefined;
   const renderedKicker = getGeneratedKickerLabel(slide.kicker, language);
   const renderedTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
   const renderedSummary = getGeneratedSlideSummary(slide.summary, slide.pageNumber, language);
@@ -46,6 +56,30 @@ export function SlideArt({ slide, compact = false, className }: SlideArtProps) {
         ];
   const isImportedCompact = compact && slide.section === "imported";
   const getRenderedMetricLabel = (label: string) => getGeneratedMetricLabel(label, language);
+
+  if (renderedImageUrl) {
+    return (
+      <div
+        className={cn(
+          "relative aspect-[var(--slide-aspect-ratio,1.6)] overflow-hidden rounded-md border border-stone-200 bg-white shadow-sm",
+          className,
+        )}
+        style={{ ["--slide-aspect-ratio" as string]: String(slide.aspectRatio ?? 16 / 10) }}
+      >
+        <Image
+          alt={`${formatSlideLabel(slide.pageNumber, language)} · ${renderedTitle}`}
+          className="h-full w-full object-contain"
+          draggable={false}
+          fill
+          loading={compact && !priority ? "lazy" : "eager"}
+          onError={() => setFailedRenderedImage({ slideId: slide.id, url: renderedImageUrl })}
+          preload={!compact}
+          sizes={compact ? "238px" : "1024px"}
+          src={renderedImageUrl}
+        />
+      </div>
+    );
+  }
 
   if (isImportedCompact) {
     const textReady = slide.extractedText.trim().length > 0;
@@ -94,7 +128,7 @@ export function SlideArt({ slide, compact = false, className }: SlideArtProps) {
             {[
               { icon: FileText, ready: textReady, label: t("slideArt.text") },
               { icon: StickyNote, ready: notesReady, label: t("slideArt.notes") },
-            ].map((item) => {
+            ].map((item, index) => {
               const Icon = item.icon;
 
               return (
@@ -105,7 +139,7 @@ export function SlideArt({ slide, compact = false, className }: SlideArtProps) {
                       ? "border-stone-300 bg-white/70 text-stone-700"
                       : "border-stone-200 bg-white/35 text-stone-400",
                   )}
-                  key={item.label}
+                  key={`${item.label}-${index}`}
                 >
                   <Icon className="h-2 w-2 shrink-0" />
                   <span className="truncate">{item.label}</span>
@@ -172,14 +206,14 @@ export function SlideArt({ slide, compact = false, className }: SlideArtProps) {
 
         <div className="grid min-w-0 grid-rows-[auto_1fr] gap-2 sm:gap-3 xl:gap-4">
           <div className={cn("grid grid-cols-2 gap-2 sm:gap-3", compact && "gap-1")}>
-            {displayMetrics.slice(0, 2).map((metric) => (
+            {displayMetrics.slice(0, 2).map((metric, index) => (
               <div
                 className={cn(
                   "min-w-0 rounded-md p-2 shadow-sm sm:p-2.5 xl:p-3",
                   toneClass[metric.tone],
                   compact && "rounded-[3px] p-1",
                 )}
-                key={metric.label}
+                key={`${metric.label}-${metric.value}-${index}`}
               >
                 <div className={cn("truncate text-[9px] uppercase opacity-75 sm:text-[11px]", compact && "text-[5px]")}>
                   {getRenderedMetricLabel(metric.label)}

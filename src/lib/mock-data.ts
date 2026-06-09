@@ -15,6 +15,9 @@ export type Slide = {
   accent: string;
   visualSummary: string;
   extractedText: string;
+  imageUrl?: string;
+  thumbnailUrl?: string;
+  aspectRatio?: number;
   speakerNotes: string;
 };
 

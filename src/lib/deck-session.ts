@@ -6,8 +6,9 @@ import {
 } from "@/lib/upload-contract";
 
 const deckSessionsStorageKey = "slideroom-deck-sessions-v1";
-const maxStoredDeckSessions = 10;
-const maxStoredSlideTextLength = 6000;
+const maxStoredDeckSessions = 6;
+const maxStoredExtractedTextLength = 1600;
+const maxStoredSpeakerNotesLength = 2200;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -17,26 +18,39 @@ function isInspectionStatus(value: unknown): value is DeckInspectionStatus {
   return value === "parsed" || value === "unsupported" || value === "failed";
 }
 
-function clipStoredText(value: string) {
-  return value.trim().slice(0, maxStoredSlideTextLength);
+function clipStoredText(value: string, maxLength: number) {
+  return value.trim().slice(0, maxLength);
 }
 
 function sanitizeSlides(value: unknown): UploadedSlideContext[] {
   if (!Array.isArray(value)) return [];
 
   return value
-    .map((slide) => {
-      if (!isRecord(slide) || typeof slide.pageNumber !== "number") return null;
+    .reduce<UploadedSlideContext[]>((items, slide) => {
+      if (!isRecord(slide) || typeof slide.pageNumber !== "number") return items;
 
       const pageNumber = Math.max(1, Math.round(slide.pageNumber));
 
-      return {
+      items.push({
         pageNumber,
-        extractedText: typeof slide.extractedText === "string" ? clipStoredText(slide.extractedText) : "",
-        speakerNotes: typeof slide.speakerNotes === "string" ? clipStoredText(slide.speakerNotes) : "",
-      };
-    })
-    .filter((slide): slide is UploadedSlideContext => Boolean(slide))
+        aspectRatio:
+          typeof slide.aspectRatio === "number" && Number.isFinite(slide.aspectRatio) && slide.aspectRatio > 0
+            ? slide.aspectRatio
+            : undefined,
+        extractedText:
+          typeof slide.extractedText === "string"
+            ? clipStoredText(slide.extractedText, maxStoredExtractedTextLength)
+            : "",
+        imageUrl: typeof slide.imageUrl === "string" ? slide.imageUrl : undefined,
+        speakerNotes:
+          typeof slide.speakerNotes === "string"
+            ? clipStoredText(slide.speakerNotes, maxStoredSpeakerNotesLength)
+            : "",
+        thumbnailUrl: typeof slide.thumbnailUrl === "string" ? slide.thumbnailUrl : undefined,
+      });
+
+      return items;
+    }, [])
     .sort((left, right) => left.pageNumber - right.pageNumber);
 }
 
@@ -57,6 +71,10 @@ function sanitizeUploadedDeckSession(value: unknown): UploadedDeckSession | null
     inspectionStatus: isInspectionStatus(value.inspectionStatus) ? value.inspectionStatus : "unsupported",
     originalFileName,
     pageCount,
+    renderStatus:
+      value.renderStatus === "rendered" || value.renderStatus === "unavailable" || value.renderStatus === "failed"
+        ? value.renderStatus
+        : undefined,
     slides,
     size: Math.max(0, Math.round(typeof value.size === "number" ? value.size : 0)),
     status: "uploaded",
@@ -86,19 +104,40 @@ function readDeckSessionMap() {
   }
 }
 
+function getStorageLightSession(session: UploadedDeckSession): UploadedDeckSession {
+  return {
+    ...session,
+    slides: session.slides.map((slide) => ({
+      pageNumber: slide.pageNumber,
+      ...(slide.aspectRatio ? { aspectRatio: slide.aspectRatio } : {}),
+      extractedText: "",
+      ...(slide.imageUrl ? { imageUrl: slide.imageUrl } : {}),
+      speakerNotes: "",
+      ...(slide.thumbnailUrl ? { thumbnailUrl: slide.thumbnailUrl } : {}),
+    })),
+  };
+}
+
 function writeDeckSessionMap(sessions: Map<string, UploadedDeckSession>) {
   if (typeof window === "undefined") return;
 
-  try {
-    const normalizedSessions = [...sessions.values()]
-      .map(sanitizeUploadedDeckSession)
-      .filter((session): session is UploadedDeckSession => Boolean(session))
-      .sort((left, right) => right.uploadedAt - left.uploadedAt)
-      .slice(0, maxStoredDeckSessions);
+  const normalizedSessions = [...sessions.values()]
+    .map(sanitizeUploadedDeckSession)
+    .filter((session): session is UploadedDeckSession => Boolean(session))
+    .sort((left, right) => right.uploadedAt - left.uploadedAt)
+    .slice(0, maxStoredDeckSessions);
 
+  try {
     window.localStorage.setItem(deckSessionsStorageKey, JSON.stringify(normalizedSessions));
   } catch {
-    // Storage can fail in private mode or when quota is exhausted.
+    try {
+      window.localStorage.setItem(
+        deckSessionsStorageKey,
+        JSON.stringify(normalizedSessions.slice(0, 3).map(getStorageLightSession)),
+      );
+    } catch {
+      // Storage can fail in private mode or when quota is exhausted.
+    }
   }
 }
 

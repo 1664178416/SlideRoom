@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { getDeckFileStem, normalizeDeckFileName } from "@/lib/deck-display";
 import { deckMeta } from "@/lib/mock-data";
 import { inspectPptx } from "@/lib/pptx-inspector";
+import { renderDeckToImages } from "@/lib/ppt-renderer";
 import {
   isSupportedDeckFileName,
   maxUploadFileSizeBytes,
@@ -99,25 +100,48 @@ export async function POST(request: Request) {
     const storedFileName = getStoredFileName(deckId, fileName);
     const storageKey = `.slideroom/uploads/${deckId}/${storedFileName}`;
     const fileBytes = Buffer.from(await uploadedFile.arrayBuffer());
+    const storedFilePath = path.join(deckDirectory, storedFileName);
     const inspection = fileName.toLowerCase().endsWith(".pptx")
       ? inspectPptx(fileBytes)
       : { inspectionStatus: "unsupported" as const, pageCount: 0, slides: [] };
-    const pageCount = Math.max(1, inspection.pageCount || 1);
+
+    await mkdir(deckDirectory, { recursive: true });
+    await writeFile(storedFilePath, fileBytes);
+
+    const renderedDeck = await renderDeckToImages({
+      deckId,
+      inputPath: storedFilePath,
+      outputDirectory: path.join(deckDirectory, "slides"),
+    });
+    const renderedImagesByPageNumber = new Map(renderedDeck.images.map((image) => [image.pageNumber, image]));
+    const pageCount = Math.max(1, renderedDeck.images.length || inspection.pageCount || 1);
     const session: UploadedDeckSession = {
       deckId,
       fileName,
       inspectionStatus: inspection.inspectionStatus,
       originalFileName: uploadedFile.name,
       pageCount,
-      slides: inspection.slides,
+      renderStatus: renderedDeck.status,
+      slides: Array.from({ length: pageCount }, (_, index) => {
+        const pageNumber = index + 1;
+        const slideContext = inspection.slides.find((slide) => slide.pageNumber === pageNumber);
+        const renderedImage = renderedImagesByPageNumber.get(pageNumber);
+
+        return {
+          pageNumber,
+          extractedText: slideContext?.extractedText ?? "",
+          imageUrl: renderedImage?.imageUrl,
+          thumbnailUrl: renderedImage?.thumbnailUrl,
+          aspectRatio: renderedImage?.aspectRatio,
+          speakerNotes: slideContext?.speakerNotes ?? "",
+        };
+      }),
       size: fileBytes.byteLength,
       status: "uploaded",
       storageKey,
       uploadedAt,
     };
 
-    await mkdir(deckDirectory, { recursive: true });
-    await writeFile(path.join(deckDirectory, storedFileName), fileBytes);
     await writeFile(path.join(deckDirectory, "metadata.json"), JSON.stringify(session, null, 2), "utf8");
     await pruneOldUploads();
 

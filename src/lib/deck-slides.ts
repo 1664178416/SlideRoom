@@ -70,7 +70,7 @@ function getImportedSlideSummary(pageNumber: number, context?: UploadedSlideCont
     return clipText(extractedText, 180);
   }
 
-  return `Slide ${String(pageNumber).padStart(2, "0")} is ready for page-specific questions. Text extraction did not return content for this page yet.`;
+  return `Slide ${String(pageNumber).padStart(2, "0")} is ready for page-specific questions. No extractable text was found yet.`;
 }
 
 function getImportedSlideBullets(context?: UploadedSlideContext) {
@@ -162,10 +162,10 @@ function getImportedVisualSummary(context?: UploadedSlideContext) {
   const noteLength = normalizeText(context?.speakerNotes ?? "").length;
 
   if (textLineCount > 0 || noteLength > 0) {
-    return `Imported slide with extracted text ready for page-level reading and questions.`;
+    return `Page text and speaker notes are ready for slide-level reading and questions.`;
   }
 
-  return `Imported slide placeholder. Full image rendering can be connected after the local renderer is enabled.`;
+  return `Preview image is unavailable on this device. You can still use extracted text and speaker notes when available.`;
 }
 
 function getImportedSlide(pageNumber: number, session: UploadedDeckSession, context?: UploadedSlideContext): Slide {
@@ -178,7 +178,7 @@ function getImportedSlide(pageNumber: number, session: UploadedDeckSession, cont
     pageNumber,
     section: "imported",
     title,
-    kicker: session.inspectionStatus === "parsed" ? "Imported PPTX page" : "Imported PPT page",
+    kicker: session.inspectionStatus === "parsed" ? "PPTX page" : "PPT page",
     summary: getImportedSlideSummary(pageNumber, context),
     bullets: getImportedSlideBullets(context),
     metrics: getImportedSlideMetrics(context),
@@ -186,6 +186,9 @@ function getImportedSlide(pageNumber: number, session: UploadedDeckSession, cont
     accent: importedAccents[(pageNumber - 1) % importedAccents.length],
     visualSummary: getImportedVisualSummary(context),
     extractedText,
+    imageUrl: context?.imageUrl,
+    thumbnailUrl: context?.thumbnailUrl,
+    aspectRatio: context?.aspectRatio,
     speakerNotes,
   };
 }

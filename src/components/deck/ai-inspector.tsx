@@ -8,6 +8,7 @@ import {
   Copy,
   FileText,
   History,
+  Loader2,
   Map,
   MessageSquareText,
   PenLine,
@@ -24,9 +25,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { formatSlideLabel, getSlideSectionKey, TranslationKey, usePreferences } from "@/lib/preferences";
+import { generateAIResponse } from "@/lib/ai-provider-client";
+import { readAIProviderConfig } from "@/lib/ai-provider-config";
 import {
   buildAssistantResult,
   buildPresetPrompt,
+  buildQuestionPrompt,
+  compactPresetModelContent,
   emptyMessages,
   getAssistantPromptForLanguage,
   getContextTitle,
@@ -64,39 +69,84 @@ type ConversationHistoryItem = {
 };
 
 function ResultNotesPanel({
+  compact,
   result,
   t,
 }: {
+  compact?: boolean;
   result: AssistantResult;
   t: (key: TranslationKey) => string;
 }) {
   const noteLines = [
-    result.summary,
     ...result.sections.flatMap((section) => section.content.split("\n")),
   ].filter((line) => line.trim().length > 0);
 
+  if (compact && !result.error) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col border-t border-border/[0.54] bg-background/[0.06] p-2.5">
+        <div className="grid gap-2">
+          {noteLines.slice(0, 2).map((line, index) => (
+            <CompactResultLine key={`${result.title}-${index}`} line={line} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col border-t border-border/[0.54] bg-background/[0.08] p-2">
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-border/[0.70] bg-white/[0.66] shadow-[0_1px_0_rgba(255,255,255,0.62)_inset,0_10px_24px_rgba(15,23,42,0.045)] dark:bg-secondary/[0.32] dark:shadow-none">
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/[0.54] bg-background/[0.28] px-3 py-2 dark:bg-background/[0.08]">
+    <div className="flex min-h-0 flex-1 flex-col border-t border-border/[0.54] bg-background/[0.06] p-2">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-border/[0.62] bg-white/[0.52] shadow-[0_1px_0_rgba(255,255,255,0.56)_inset] dark:bg-secondary/[0.26] dark:shadow-none">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/[0.48] bg-background/[0.20] px-3 py-1.5 dark:bg-background/[0.08]">
           <span className="flex min-w-0 items-center gap-2 text-xs font-semibold text-foreground">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[5px] border border-primary/[0.22] bg-primary/10 text-primary">
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] border border-primary/[0.20] bg-primary/[0.08] text-primary">
               <StickyNote className="h-3.5 w-3.5" />
             </span>
             <span className="truncate">{t("ai.notes")}</span>
           </span>
-          <span className="rounded-[5px] border border-border/[0.58] bg-background/[0.44] px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground dark:bg-background/[0.14]">
-            {t("ai.generated")}
-          </span>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto bg-gradient-to-b from-background/[0.10] to-background/[0.03] px-3 py-3 text-[13px] leading-5 text-muted-foreground [scrollbar-gutter:stable] dark:from-background/[0.04] dark:to-background/[0.01]">
-          <div className="space-y-2">
+        <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-2 text-[13px] leading-5 text-muted-foreground [scrollbar-gutter:stable]">
+          <div className={cn("space-y-1", result.error && "text-destructive")}>
             {noteLines.map((line, index) => (
               <ResultContentLine key={`${result.title}-${index}`} line={line} />
             ))}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function getLabeledLineParts(line: string) {
+  const cleanLine = line.trim();
+  const separatorIndex = cleanLine.search(/[:：]/);
+  const hasLabel = separatorIndex > 0 && separatorIndex <= 16;
+
+  if (!hasLabel) {
+    return {
+      body: cleanLine,
+      label: "",
+    };
+  }
+
+  return {
+    body: cleanLine.slice(separatorIndex + 1).trim(),
+    label: cleanLine.slice(0, separatorIndex).trim(),
+  };
+}
+
+function CompactResultLine({ line }: { line: string }) {
+  const { body, label } = getLabeledLineParts(line);
+  if (!body) return null;
+
+  return (
+    <div className="rounded-md border border-border/[0.68] bg-white/[0.50] px-3 py-2.5 shadow-[0_1px_0_rgba(255,255,255,0.54)_inset] dark:bg-secondary/[0.24] dark:shadow-none">
+      {label && (
+        <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase text-muted-foreground">
+          <span className="h-1 w-1 rounded-full bg-primary" aria-hidden="true" />
+          {label}
+        </div>
+      )}
+      <p className="break-words text-[15px] font-medium leading-6 text-foreground/90">{body}</p>
     </div>
   );
 }
@@ -125,25 +175,23 @@ function ResultContentLine({ line }: { line: string }) {
   const cleanLine = line.trim();
   if (!cleanLine) return null;
 
-  const separatorIndex = cleanLine.search(/[:：]/);
-  const hasLabel = separatorIndex > 0 && separatorIndex <= 16;
-  const label = hasLabel ? cleanLine.slice(0, separatorIndex) : "";
-  const body = hasLabel ? cleanLine.slice(separatorIndex + 1).trim() : cleanLine;
+  const { body, label } = getLabeledLineParts(cleanLine);
+  const hasLabel = Boolean(label);
   const numberedItems = splitNumberedItems(body);
 
   if (numberedItems) {
     return (
-      <div className="rounded-md border border-border/[0.56] bg-white/[0.36] px-2.5 py-2 shadow-[0_1px_0_rgba(255,255,255,0.45)_inset] dark:bg-background/[0.10] dark:shadow-none">
+      <div className="rounded-[5px] px-1.5 py-1.5 hover:bg-background/[0.34] dark:hover:bg-background/[0.10]">
         {label && (
-          <div className="mb-2 flex w-fit items-center gap-1.5 rounded-[5px] border border-border/[0.56] bg-background/[0.42] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground dark:bg-background/[0.14]">
-            <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
+          <div className="mb-1 flex w-fit items-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
+            <span className="h-1 w-1 rounded-full bg-primary" aria-hidden="true" />
             {label}
           </div>
         )}
-        <div className="space-y-1.5">
+        <div className="space-y-1">
           {numberedItems.map((item) => (
             <div
-              className="grid grid-cols-[18px_minmax(0,1fr)] gap-2 rounded-[5px] border border-border/[0.36] bg-background/[0.34] px-2 py-1.5 dark:bg-background/[0.10]"
+              className="grid grid-cols-[18px_minmax(0,1fr)] gap-2 rounded-[5px] px-1.5 py-1"
               key={`${item.number}-${item.text}`}
             >
               <span
@@ -162,15 +210,15 @@ function ResultContentLine({ line }: { line: string }) {
 
   if (hasLabel) {
     return (
-      <div className="rounded-md border border-border/[0.42] bg-white/[0.24] px-2.5 py-2 dark:bg-background/[0.08]">
-        <div className="mb-1 text-[10px] font-semibold uppercase text-muted-foreground">{label}</div>
-        <p className="break-words text-foreground/86">{body}</p>
+      <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2 rounded-[5px] px-1.5 py-1.5 transition-colors hover:bg-background/[0.34] dark:hover:bg-background/[0.10]">
+        <div className="min-w-0 truncate text-[11px] font-semibold text-muted-foreground">{label}</div>
+        <p className="min-w-0 break-words text-foreground/88">{body}</p>
       </div>
     );
   }
 
   return (
-    <p className="rounded-[5px] px-1.5 py-1 text-foreground/86">
+    <p className="rounded-[5px] px-1.5 py-1 text-foreground/88">
       {cleanLine}
     </p>
   );
@@ -178,11 +226,15 @@ function ResultContentLine({ line }: { line: string }) {
 
 function AssistantResultPanel({
   action,
+  compact,
+  isGenerating,
   onRun,
   result,
   t,
 }: {
   action: (typeof quickActions)[number];
+  compact?: boolean;
+  isGenerating: boolean;
   onRun: () => void;
   result: AssistantResult;
   t: (key: TranslationKey) => string;
@@ -243,9 +295,6 @@ function AssistantResultPanel({
       `${t("ai.context")}: ${result.contextNote}`,
       `${t("ai.sources")}: ${result.sourceSlideText}`,
       "",
-      `## ${t("ai.promptTrace")}`,
-      result.prompt,
-      "",
       ...result.sections.flatMap((section) => [
         `## ${t(section.titleKey)}`,
         section.content,
@@ -296,12 +345,16 @@ function AssistantResultPanel({
       <div className="flex items-center justify-between gap-2 border-b border-border/[0.68] px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-primary/[0.24] bg-primary/[0.12] text-primary">
-            <ActionIcon className="h-3.5 w-3.5" />
+            {result.error ? <AlertTriangle className="h-3.5 w-3.5" /> : <ActionIcon className="h-3.5 w-3.5" />}
           </span>
           <span className="min-w-0">
             <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase text-muted-foreground">
-              <Sparkles className="h-3.5 w-3.5 shrink-0" />
-              {t("ai.generated")}
+              {result.error ? (
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5 shrink-0" />
+              )}
+              {result.error ? t("common.error") : t("ai.generated")}
             </span>
             <span className="block truncate text-sm font-semibold">{result.title}</span>
           </span>
@@ -310,11 +363,12 @@ function AssistantResultPanel({
           <button
             aria-label={`${t("ai.runPreset")} · ${t(action.labelKey)}`}
             className="flex h-7 w-7 items-center justify-center rounded-[5px] text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            disabled={isGenerating}
             onClick={onRun}
             title={`${t("ai.runPreset")} · ${t(action.labelKey)}`}
             type="button"
           >
-            <Sparkles className="h-3.5 w-3.5" />
+            {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
           </button>
           <button
             aria-label={copyStatusLabel}
@@ -335,7 +389,7 @@ function AssistantResultPanel({
             )}
           </button>
           <span className="rounded-[5px] border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-            {t(action.shortLabelKey)}
+            {result.error ? t("common.error") : t(action.shortLabelKey)}
           </span>
         </div>
       </div>
@@ -343,7 +397,7 @@ function AssistantResultPanel({
         className="relative shrink-0 border-b border-border/[0.58] bg-background/30 px-2.5 py-1.5 dark:bg-background/[0.12]"
         ref={metaDisclosureRef}
       >
-        <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
             {visibleSourceSlideLabels.map((sourceSlideLabel) => (
               <span
@@ -359,12 +413,9 @@ function AssistantResultPanel({
               </span>
             )}
           </div>
-          <p className="min-w-0 border-l border-primary/30 pl-2 text-xs leading-5 text-foreground [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical] overflow-hidden">
-            {result.summary}
-          </p>
           <button
             aria-expanded={metaOpen}
-            aria-controls="ai-result-context-prompt"
+            aria-controls="ai-result-context-detail"
             aria-label={t("ai.contextPrompt")}
             className="flex h-6 min-w-0 shrink-0 items-center gap-1.5 rounded-[5px] border border-border bg-white/[0.28] px-1.5 text-left text-[10px] font-medium text-muted-foreground transition hover:bg-white/[0.48] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-background/[0.10] dark:hover:bg-secondary/[0.26]"
             data-ai-meta-toggle="true"
@@ -383,7 +434,7 @@ function AssistantResultPanel({
               animate={{ height: "auto", opacity: 1 }}
               className="mt-1.5 overflow-hidden rounded-md border border-border/[0.7] bg-background/82 text-[11px] leading-5 text-muted-foreground shadow-[0_10px_28px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:bg-secondary/72 dark:shadow-none"
               exit={{ height: 0, opacity: 0 }}
-              id="ai-result-context-prompt"
+              id="ai-result-context-detail"
               initial={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
             >
@@ -391,14 +442,15 @@ function AssistantResultPanel({
                 <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary/[0.72]" />
                 <p className="line-clamp-2">{result.contextNote}</p>
               </div>
-              <pre className="max-h-[148px] overflow-y-auto border-t border-border/[0.56] bg-white/[0.24] px-2.5 py-1.5 whitespace-pre-wrap break-words dark:bg-background/[0.10]">
-                {result.prompt}
-              </pre>
+              <div className="border-t border-border/[0.56] bg-white/[0.24] px-2.5 py-1.5 dark:bg-background/[0.10]">
+                <span className="mr-1 font-semibold text-foreground">{t("ai.sources")}:</span>
+                <span>{result.sourceSlideText}</span>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
-      <ResultNotesPanel key={`${action.id}-${result.title}`} result={result} t={t} />
+      <ResultNotesPanel compact={compact} key={`${action.id}-${result.title}`} result={result} t={t} />
     </div>
   );
 }
@@ -406,15 +458,17 @@ function AssistantResultPanel({
 function AssistantResultEmpty({
   action,
   contextTitle,
+  isGenerating,
+  notice,
   onRun,
-  promptPreview,
   slideLabel,
   t,
 }: {
   action: (typeof quickActions)[number];
   contextTitle: string;
+  isGenerating: boolean;
+  notice?: string;
   onRun: () => void;
-  promptPreview: string;
   slideLabel: string;
   t: (key: TranslationKey) => string;
 }) {
@@ -445,16 +499,22 @@ function AssistantResultEmpty({
         <p className="mx-auto mt-1 max-w-[260px] text-center text-xs leading-5 text-muted-foreground">
           {t(action.hintKey)}
         </p>
+        {notice && (
+          <p className="mx-auto mt-2 max-w-[280px] rounded-md border border-destructive/25 bg-destructive/[0.07] px-2.5 py-1.5 text-center text-xs leading-5 text-destructive">
+            {notice}
+          </p>
+        )}
         <Button
           className="mx-auto mt-4 h-8 px-3"
           data-ai-empty-run="true"
+          disabled={isGenerating}
           onClick={onRun}
           size="sm"
           type="button"
           variant="secondary"
         >
-          <Sparkles className="h-3.5 w-3.5" />
-          {t("ai.runPreset")}
+          {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          {isGenerating ? t("ai.generating") : t("ai.runPreset")}
         </Button>
       </div>
       <div className="overflow-hidden rounded-md border border-border/70 bg-background/[0.48] text-xs text-muted-foreground dark:bg-background/[0.14]">
@@ -467,7 +527,7 @@ function AssistantResultEmpty({
             aria-expanded={promptOpen}
             aria-label={t("ai.contextPrompt")}
             className="flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-[5px] border border-border bg-white/[0.28] px-2 text-[10px] font-medium text-muted-foreground transition hover:bg-white/[0.48] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-background/[0.10] dark:hover:bg-secondary/[0.26]"
-            data-ai-empty-prompt-toggle="true"
+            data-ai-empty-context-toggle="true"
             onClick={() => setPromptOpen((current) => !current)}
             title={t("ai.contextPrompt")}
             type="button"
@@ -481,14 +541,15 @@ function AssistantResultEmpty({
           {promptOpen && (
             <motion.div
               animate={{ height: "auto", opacity: 1 }}
-              className="overflow-hidden border-t border-border/[0.56]"
+              className="overflow-hidden border-t border-border/[0.56] bg-white/[0.22] px-2.5 py-2 text-[11px] leading-5 dark:bg-background/[0.10]"
               exit={{ height: 0, opacity: 0 }}
               initial={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
             >
-              <pre className="max-h-[148px] overflow-y-auto bg-white/[0.22] px-2.5 py-2 text-[11px] leading-5 whitespace-pre-wrap break-words dark:bg-background/[0.10]">
-                {promptPreview}
-              </pre>
+              <div className="flex items-start gap-2">
+                <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary/[0.72]" />
+                <p>{t("ai.noModelCallYet")}</p>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -708,12 +769,17 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
   const [inspectorStateRestored, setInspectorStateRestored] = useState(false);
   const [messagesBySlideId, setMessagesBySlideId] = useState<Record<string, Message[]>>({});
   const [clearArmedSlideId, setClearArmedSlideId] = useState<string | null>(null);
+  const [generatingRequestId, setGeneratingRequestId] = useState<string | null>(null);
+  const [providerNoticeBySlideId, setProviderNoticeBySlideId] = useState<Record<string, string>>({});
+  const generationLockedRef = useRef(false);
 
   const prompt = draftsBySlideId[slide.id] ?? "";
   const messages = messagesBySlideId[slide.id] ?? emptyMessages;
+  const providerNotice = providerNoticeBySlideId[slide.id] ?? "";
   const clearArmed = clearArmedSlideId === slide.id;
   const historyOpen = historyOpenSlideId === slide.id;
-  const canSubmit = prompt.trim().length > 0;
+  const isGenerating = Boolean(generatingRequestId);
+  const canSubmit = prompt.trim().length > 0 && !isGenerating;
   const turnCount = messages.filter((message) => message.role === "user").length;
   const conversationHistory = useMemo(() => {
     return messages.reduce<ConversationHistoryItem[]>((items, message, index) => {
@@ -740,14 +806,25 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
   const latestAssistantMessage = [...messages]
     .reverse()
     .find((message): message is AssistantMessage => message.role === "assistant");
-  const activeAction = latestAssistantMessage
+  const latestAssistantAction = latestAssistantMessage
     ? latestAssistantMessage.action ?? getResultMode(latestAssistantMessage.prompt)
     : undefined;
+  const latestAssistantActionDefinition = latestAssistantAction
+    ? quickActions.find((action) => action.id === latestAssistantAction)
+    : undefined;
+  const activeAction =
+    latestAssistantMessage?.promptKey === latestAssistantActionDefinition?.promptKey
+      ? latestAssistantAction
+      : undefined;
   const selectedAction = quickActions.find((action) => action.id === selectedActionId) ?? quickActions[0];
   const generatedActionIds = useMemo(() => {
     return messages.reduce<Set<QuickActionId>>((actionIds, message) => {
       if (message.role === "assistant") {
-        actionIds.add(message.action ?? getResultMode(message.prompt));
+        const action = message.action ?? getResultMode(message.prompt);
+        const actionDefinition = quickActions.find((item) => item.id === action);
+        if (message.content?.trim() && actionDefinition && message.promptKey === actionDefinition.promptKey) {
+          actionIds.add(action);
+        }
       }
 
       return actionIds;
@@ -755,19 +832,6 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
   }, [messages]);
 
   const contextTitle = useMemo(() => getContextTitle(contextMode, t), [contextMode, t]);
-  const selectedPresetPrompt = useMemo(
-    () =>
-      buildPresetPrompt({
-        action: selectedAction.id,
-        contextMode,
-        deckSlides,
-        language,
-        sectionLabel,
-        slide,
-        slideLabel,
-      }),
-    [contextMode, deckSlides, language, sectionLabel, selectedAction.id, slide, slideLabel],
-  );
 
   const selectedAssistantMessageById = selectedAssistantMessageId
     ? messages.find(
@@ -781,7 +845,9 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
     .reverse()
     .find(
       (message): message is AssistantMessage =>
-        message.role === "assistant" && (message.action ?? getResultMode(message.prompt)) === selectedAction.id,
+        message.role === "assistant" &&
+        message.promptKey === selectedAction.promptKey &&
+        (message.action ?? getResultMode(message.prompt)) === selectedAction.id,
     );
   const selectedAssistantMessage = selectedAssistantMessageById ?? latestSelectedActionMessage;
   const selectedResult = selectedAssistantMessage
@@ -798,6 +864,7 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
         sectionLabel,
         selectedAssistantMessage.action,
         deckSlides,
+        selectedAssistantMessage,
       )
     : null;
   const selectedConversationMessageId = selectedAssistantMessage?.id ?? null;
@@ -838,41 +905,56 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
     return () => window.clearTimeout(clearTimerId);
   }, [clearArmed]);
 
-  function submitPrompt(value: string, action?: QuickActionId, promptKey?: TranslationKey) {
+  async function submitPrompt(value: string, action?: QuickActionId, promptKey?: TranslationKey) {
     const clean = value.trim();
-    if (!clean) return;
+    if (!clean || isGenerating || generationLockedRef.current) return;
+
+    const config = readAIProviderConfig();
+    if (!config.apiKey || !config.baseUrl || !config.model) {
+      setSelectedActionId(action ?? getResultMode(clean));
+      setSelectedAssistantMessageId(null);
+      setHistoryOpenSlideId(null);
+      setProviderNoticeBySlideId((current) => ({
+        ...current,
+        [slide.id]: t("ai.configureProviderFirst"),
+      }));
+      return;
+    }
+
+    generationLockedRef.current = true;
 
     const resolvedAction = action ?? getResultMode(clean);
+    const displayPrompt = promptKey ? t(promptKey) : clean;
     messageCounter.current += 1;
     const messageId = `${slide.id}-${messageCounter.current}`;
+    const assistantMessageId = `assistant-${messageId}`;
     const userMessage: Message = {
       id: `user-${messageId}`,
       role: "user",
-      content: clean,
+      content: displayPrompt,
       promptKey,
     };
-    const assistantMessage: Message = {
-      id: `assistant-${messageId}`,
-      role: "assistant",
-      prompt: clean,
-      contextMode,
-      action: resolvedAction,
-      promptKey,
+    const nextDraftsBySlideId = {
+      ...draftsBySlideId,
+      [slide.id]: "",
     };
 
     setSelectedActionId(resolvedAction);
-    setSelectedAssistantMessageId(assistantMessage.id);
+    setSelectedAssistantMessageId(null);
     setHistoryOpenSlideId(null);
     setClearArmedSlideId(null);
+    setProviderNoticeBySlideId((current) => {
+      if (!current[slide.id]) return current;
+      const next = { ...current };
+      delete next[slide.id];
+      return next;
+    });
+    setGeneratingRequestId(assistantMessageId);
     setMessagesBySlideId((current) => {
       const slideMessages = current[slide.id] ?? [];
       const nextMessagesBySlideId = {
         ...current,
-        [slide.id]: [...slideMessages, userMessage, assistantMessage],
-      };
-      const nextDraftsBySlideId = {
-        ...draftsBySlideId,
-        [slide.id]: "",
+        [slide.id]: [...slideMessages, userMessage],
       };
 
       writeAIInspectorState({
@@ -888,25 +970,93 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
       ...current,
       [slide.id]: "",
     }));
+
+    const modelPrompt = promptKey
+      ? clean
+      : buildQuestionPrompt({
+          contextMode,
+          deckSlides,
+          language,
+          question: clean,
+          sectionLabel,
+          slide,
+          slideLabel,
+        });
+    let assistantMessage: Message;
+
+    try {
+      const generatedContent = await generateAIResponse({
+        config,
+        language,
+        maxOutputTokens: promptKey ? 40 : undefined,
+        prompt: modelPrompt,
+      });
+      const content = promptKey
+        ? compactPresetModelContent(generatedContent, resolvedAction, language)
+        : generatedContent;
+
+      assistantMessage = {
+        id: assistantMessageId,
+        role: "assistant",
+        prompt: displayPrompt,
+        ...(!promptKey && modelPrompt !== clean ? { modelPrompt } : {}),
+        content,
+        contextMode,
+        action: resolvedAction,
+        promptKey,
+      };
+    } catch (error) {
+      assistantMessage = {
+        id: assistantMessageId,
+        role: "assistant",
+        prompt: displayPrompt,
+        ...(!promptKey && modelPrompt !== clean ? { modelPrompt } : {}),
+        error: `${t("ai.requestFailed")}: ${error instanceof Error ? error.message : String(error)}`,
+        contextMode,
+        action: resolvedAction,
+        promptKey,
+      };
+    } finally {
+      generationLockedRef.current = false;
+      setGeneratingRequestId((current) => (current === assistantMessageId ? null : current));
+    }
+
+    setSelectedAssistantMessageId(assistantMessage.id);
+    setMessagesBySlideId((current) => {
+      const slideMessages = current[slide.id] ?? [];
+      const nextMessagesBySlideId = {
+        ...current,
+        [slide.id]: [...slideMessages, assistantMessage],
+      };
+
+      writeAIInspectorState({
+        contextMode,
+        draftsBySlideId: nextDraftsBySlideId,
+        messagesBySlideId: nextMessagesBySlideId,
+        selectedActionId: resolvedAction,
+      });
+
+      return nextMessagesBySlideId;
+    });
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    submitPrompt(prompt);
+    void submitPrompt(prompt);
   }
 
   function handlePromptKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
 
     event.preventDefault();
-    if (canSubmit) submitPrompt(prompt);
+    if (canSubmit) void submitPrompt(prompt);
   }
 
   function handleQuickAction(action: (typeof quickActions)[number]["id"]) {
     const selectedAction = quickActions.find((item) => item.id === action);
     if (!selectedAction) return;
 
-    submitPrompt(
+    void submitPrompt(
       buildPresetPrompt({
         action,
         contextMode,
@@ -935,6 +1085,14 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
   }
 
   function updatePrompt(value: string) {
+    if (providerNotice) {
+      setProviderNoticeBySlideId((current) => {
+        const next = { ...current };
+        delete next[slide.id];
+        return next;
+      });
+    }
+
     setDraftsBySlideId((current) => {
       const nextDraftsBySlideId = {
         ...current,
@@ -1075,6 +1233,8 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
             {selectedResult ? (
               <AssistantResultPanel
                 action={selectedAction}
+                compact={Boolean(selectedAssistantMessage?.promptKey)}
+                isGenerating={isGenerating}
                 onRun={() => handleQuickAction(selectedAction.id)}
                 result={selectedResult}
                 t={t}
@@ -1083,8 +1243,9 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
               <AssistantResultEmpty
                 action={selectedAction}
                 contextTitle={contextTitle}
+                isGenerating={isGenerating}
+                notice={providerNotice}
                 onRun={() => handleQuickAction(selectedAction.id)}
-                promptPreview={selectedPresetPrompt}
                 slideLabel={slideLabel}
                 t={t}
               />
@@ -1094,6 +1255,11 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
       </div>
 
       <form className="border-t border-border/[0.72] bg-background/[0.14] p-2 dark:bg-background/[0.08]" onSubmit={handleSubmit}>
+        {providerNotice && selectedResult && (
+          <div className="mb-2 rounded-md border border-destructive/25 bg-destructive/[0.07] px-2.5 py-1.5 text-xs leading-5 text-destructive">
+            {providerNotice}
+          </div>
+        )}
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
           <Textarea
             aria-label={`${t("ai.askPlaceholder")} ${slideLabel}`}
@@ -1120,8 +1286,8 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
               </Button>
             )}
             <Button aria-label={t("ai.ask")} className="h-[54px] px-3" disabled={!canSubmit} size="sm" type="submit">
-              <Send className="h-3.5 w-3.5" />
-              <span className="hidden xl:inline">{t("ai.ask")}</span>
+              {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              <span className="hidden xl:inline">{isGenerating ? t("ai.generating") : t("ai.ask")}</span>
             </Button>
           </div>
         </div>

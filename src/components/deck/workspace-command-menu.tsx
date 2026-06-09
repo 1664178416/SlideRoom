@@ -125,12 +125,13 @@ function WorkspaceCommandMenuDialog({
       .map((slide) => {
         const slideLabel = formatSlideLabel(slide.pageNumber, language);
         const slideTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
+        const slideMeta = slide.section === "imported" ? t("rail.slides") : t(getSlideSectionKey(slide.section));
 
         return {
           id: `slide-${slide.id}`,
           icon: FileText,
           label: `${slideLabel} · ${slideTitle}`,
-          meta: t(getSlideSectionKey(slide.section)),
+          meta: slideMeta,
           run: () => {
             onSelectSlide(slide);
             onClose();

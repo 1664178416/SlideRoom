@@ -6,6 +6,9 @@ export type DeckContextQuality = "failed" | "parsed" | "partial" | "preview_only
 export type UploadedSlideContext = {
   pageNumber: number;
   extractedText: string;
+  imageUrl?: string;
+  thumbnailUrl?: string;
+  aspectRatio?: number;
   speakerNotes: string;
 };
 
@@ -15,6 +18,7 @@ export type UploadedDeckSession = {
   inspectionStatus: DeckInspectionStatus;
   originalFileName: string;
   pageCount: number;
+  renderStatus?: "rendered" | "unavailable" | "failed";
   slides: UploadedSlideContext[];
   size: number;
   status: "uploaded";

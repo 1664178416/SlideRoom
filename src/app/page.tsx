@@ -326,21 +326,6 @@ export default function HomePage() {
     router.push(buildProcessingHref(deckId, normalizedName, startedAt, pageCount));
   }
 
-  function startProcessing(name = deckMeta.fileName) {
-    setActiveInspectionStatus("parsed");
-    setPreviewSlides(slides);
-    beginProcessingSession({
-      contextMeta: {
-        contextQuality: "parsed",
-        contextStats: demoContextStats,
-      },
-      deckId: deckMeta.id,
-      fileName: name,
-      pageCount: deckMeta.pageCount,
-      startedAt: getClientTimestamp(),
-    });
-  }
-
   function openDemoWorkspace() {
     clearProcessingSession(deckMeta.id);
     setActiveDeckId(deckMeta.id);
@@ -784,11 +769,6 @@ export default function HomePage() {
                 <ArrowRight className="h-4 w-4" />
               </Button>
 
-              {uploadState === "idle" && (
-                <Button className="mt-2 w-full" onClick={() => startProcessing()} variant="outline">
-                  {t("home.simulate")}
-                </Button>
-              )}
               {uploadState === "error" && (
                 <Button className="mt-2 w-full" onClick={openUploadPicker} variant="outline">
                   <Upload className="h-4 w-4" />

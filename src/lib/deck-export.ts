@@ -32,6 +32,22 @@ type BuildDeckMarkdownExportInput = {
   t: (key: TranslationKey) => string;
 };
 
+const maxExportExtractedTextLength = 1800;
+const maxExportSpeakerNotesLength = 2400;
+
+function clipExportText(value: string, maxLength: number, language: Language) {
+  const cleanValue = value.trim();
+  if (cleanValue.length <= maxLength) return cleanValue;
+
+  const hiddenLength = cleanValue.length - maxLength;
+  const suffix =
+    language === "zh"
+      ? `\n\n[已截断 ${hiddenLength} 字，完整原文仍保留在工作台中]`
+      : `\n\n[truncated ${hiddenLength} chars; full text remains in the workspace]`;
+
+  return `${cleanValue.slice(0, maxLength).trimEnd()}${suffix}`;
+}
+
 export function getDeckMarkdownFileName(deckFileName: string, language: Language) {
   return `${getDeckFileStem(deckFileName, deckMeta.id)}-${language}-notes.md`;
 }
@@ -92,10 +108,16 @@ export function buildDeckMarkdownExport({
         formatMarkdownInline(slideVisualSummary, emptyValue),
         "",
         `### ${t("common.extractedText")}`,
-        ...formatMarkdownCodeBlock(slide.extractedText, emptyValue),
+        ...formatMarkdownCodeBlock(
+          clipExportText(slide.extractedText, maxExportExtractedTextLength, language),
+          emptyValue,
+        ),
         "",
         `### ${t("common.speakerNotes")}`,
-        ...formatMarkdownQuote(slide.speakerNotes, emptyValue),
+        ...formatMarkdownQuote(
+          clipExportText(slide.speakerNotes, maxExportSpeakerNotesLength, language),
+          emptyValue,
+        ),
         "",
         ...aiInsightLines,
       ];

@@ -12,6 +12,7 @@ import {
   FileText,
   KeyRound,
   Link2,
+  Loader2,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -20,6 +21,7 @@ import {
   Settings,
   Sparkles,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -31,10 +33,10 @@ import {
   readAIProviderConfig,
   writeAIProviderConfig,
   type AIProviderConfig,
-  type TokenPolicyMode,
 } from "@/lib/ai-provider-config";
+import { generateAIResponse } from "@/lib/ai-provider-client";
 import { contextQualityLabelKeys, getContextQualityTone } from "@/lib/context-quality";
-import { type TranslationKey, usePreferences } from "@/lib/preferences";
+import { usePreferences } from "@/lib/preferences";
 import type { DeckContextQuality, SlideContextStats } from "@/lib/upload-contract";
 
 type TopBarProps = {
@@ -48,37 +50,17 @@ type TopBarProps = {
   pageCount: number;
   railOpen: boolean;
   settingsOpen: boolean;
+  uploadBusy?: boolean;
   onExport: () => void;
   onCloseAISettings: () => void;
   onCloseSettings: () => void;
   onOpenCommandMenu: () => void;
+  onUploadClick: () => void;
   onToggleAISettings: () => void;
   onToggleInspector: () => void;
   onToggleRail: () => void;
   onToggleSettings: () => void;
 };
-
-const tokenPolicyOptions: Array<{
-  descriptionKey: TranslationKey;
-  labelKey: TranslationKey;
-  value: TokenPolicyMode;
-}> = [
-  {
-    descriptionKey: "settings.policyOnDemandHint",
-    labelKey: "settings.policyOnDemand",
-    value: "on-demand",
-  },
-  {
-    descriptionKey: "settings.policyWarmCurrentHint",
-    labelKey: "settings.policyWarmCurrent",
-    value: "warm-current",
-  },
-  {
-    descriptionKey: "settings.policyFullDeckHint",
-    labelKey: "settings.policyFullDeck",
-    value: "full-deck",
-  },
-];
 
 function getCommandShortcutLabel() {
   if (typeof window === "undefined") return "Ctrl K";
@@ -89,6 +71,13 @@ function getCommandShortcutLabel() {
 
 function subscribeCommandShortcut() {
   return () => {};
+}
+
+function clipStatusMessage(value: string) {
+  const normalizedValue = value.replace(/\s+/g, " ").trim();
+  if (normalizedValue.length <= 220) return normalizedValue;
+
+  return `${normalizedValue.slice(0, 217).trimEnd()}...`;
 }
 
 export function TopBar({
@@ -103,6 +92,7 @@ export function TopBar({
   onCloseSettings,
   onExport,
   onOpenCommandMenu,
+  onUploadClick,
   onToggleAISettings,
   onToggleInspector,
   onToggleRail,
@@ -110,12 +100,15 @@ export function TopBar({
   pageCount,
   railOpen,
   settingsOpen,
+  uploadBusy = false,
 }: TopBarProps) {
-  const { t } = usePreferences();
+  const { language, t } = usePreferences();
   const controlsRef = useRef<HTMLDivElement>(null);
   const saveFeedbackTimerRef = useRef<number | null>(null);
   const [aiProviderConfig, setAIProviderConfig] = useState<AIProviderConfig>(defaultAIProviderConfig);
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
+  const [aiTestMessage, setAITestMessage] = useState("");
+  const [aiTestStatus, setAITestStatus] = useState<"error" | "idle" | "success" | "testing">("idle");
   const [saveFeedbackVisible, setSaveFeedbackVisible] = useState(false);
   const commandShortcutLabel = useSyncExternalStore(
     subscribeCommandShortcut,
@@ -128,7 +121,11 @@ export function TopBar({
   const railLabel = railOpen ? t("workspace.hideSlideRail") : t("workspace.showSlideRail");
   const inspectorLabel = inspectorOpen ? t("workspace.hideInspector") : t("workspace.showInspector");
   const exportLabel = exportReady ? t("workspace.exported") : t("common.exportDeckNotes");
-  const aiConfigured = aiProviderConfig.apiKey.length > 0 && aiProviderConfig.baseUrl.length > 0;
+  const uploadLabel = uploadBusy ? t("home.processing") : t("home.uploadPpt");
+  const aiConfigured =
+    aiProviderConfig.apiKey.trim().length > 0 &&
+    aiProviderConfig.baseUrl.trim().length > 0 &&
+    aiProviderConfig.model.trim().length > 0;
 
   useEffect(() => {
     if (!settingsOpen && !aiSettingsOpen) return;
@@ -167,6 +164,8 @@ export function TopBar({
     value: AIProviderConfig[K],
   ) {
     setSaveFeedbackVisible(false);
+    setAITestStatus("idle");
+    setAITestMessage("");
     setAIProviderConfig((current) => ({
       ...current,
       [key]: value,
@@ -188,11 +187,42 @@ export function TopBar({
     }, 1600);
   }
 
+  async function testAISettings() {
+    if (!aiConfigured || aiTestStatus === "testing") return;
+
+    setSaveFeedbackVisible(false);
+    setAITestStatus("testing");
+    setAITestMessage("");
+
+    try {
+      const savedConfig = writeAIProviderConfig(aiProviderConfig);
+      setAIProviderConfig(savedConfig);
+      await generateAIResponse({
+        config: savedConfig,
+        language,
+        maxOutputTokens: 32,
+        prompt:
+          language === "zh"
+            ? "这是一次连接测试。只回复：连接正常"
+            : "This is a connection test. Reply only: Connected",
+      });
+      setAITestStatus("success");
+      setAITestMessage(t("settings.testPassed"));
+    } catch (error) {
+      setAITestStatus("error");
+      setAITestMessage(
+        clipStatusMessage(error instanceof Error ? error.message : String(error)),
+      );
+    }
+  }
+
   function clearAISettings() {
     const clearedConfig = clearAIProviderConfig();
 
     setAIProviderConfig(clearedConfig);
     setApiKeyVisible(false);
+    setAITestStatus("idle");
+    setAITestMessage("");
     setSaveFeedbackVisible(true);
     if (saveFeedbackTimerRef.current !== null) {
       window.clearTimeout(saveFeedbackTimerRef.current);
@@ -205,7 +235,7 @@ export function TopBar({
   }
 
   return (
-    <header className="glass-panel relative z-40 flex h-14 shrink-0 items-center justify-between rounded-md px-3">
+    <header className="glass-panel relative z-40 flex min-h-14 shrink-0 flex-col gap-2 rounded-md px-3 py-2 sm:h-14 sm:flex-row sm:items-center sm:justify-between sm:py-0">
       <div className="flex min-w-0 items-center gap-2 sm:gap-3">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-foreground text-xs font-semibold text-background">
           SR
@@ -223,7 +253,7 @@ export function TopBar({
       </div>
 
       <div
-        className="flex items-center gap-1.5"
+        className="-mx-1 flex max-w-full items-center gap-1.5 overflow-x-auto px-1 pb-0.5 sm:mx-0 sm:max-w-none sm:overflow-visible sm:px-0 sm:pb-0"
         onClick={(event) => event.stopPropagation()}
         ref={controlsRef}
       >
@@ -253,6 +283,19 @@ export function TopBar({
             <InspectorIcon className="h-4 w-4" />
           </Button>
         </div>
+        <Button
+          aria-label={uploadLabel}
+          data-workspace-upload="true"
+          disabled={uploadBusy}
+          onClick={onUploadClick}
+          size="sm"
+          title={uploadLabel}
+          type="button"
+          variant="secondary"
+        >
+          {uploadBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+          <span className="hidden sm:inline">{uploadLabel}</span>
+        </Button>
         <Button
           aria-label={t("command.title")}
           data-workspace-search="true"
@@ -428,14 +471,38 @@ export function TopBar({
                       </label>
                     </div>
 
-                    <div className="flex items-center justify-between gap-2 pt-1">
-                      <div className="min-w-0 text-xs font-medium text-primary">
-                        {saveFeedbackVisible ? t("settings.saved") : ""}
+                    <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center sm:justify-between">
+                      <div
+                        className={[
+                          "min-h-5 min-w-0 text-xs font-medium leading-5 sm:line-clamp-2",
+                          aiTestStatus === "error" ? "text-destructive" : "text-primary",
+                        ].join(" ")}
+                      >
+                        {aiTestStatus === "testing"
+                          ? t("settings.testingAISettings")
+                          : aiTestMessage || (saveFeedbackVisible ? t("settings.saved") : "")}
                       </div>
-                      <div className="flex shrink-0 items-center gap-1.5">
+                      <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:justify-end">
                         <Button onClick={clearAISettings} size="sm" type="button" variant="ghost">
                           <Trash2 className="h-3.5 w-3.5" />
                           {t("settings.clearAISettings")}
+                        </Button>
+                        <Button
+                          disabled={!aiConfigured || aiTestStatus === "testing"}
+                          onClick={testAISettings}
+                          size="sm"
+                          title={t("settings.testAISettingsHint")}
+                          type="button"
+                          variant="secondary"
+                        >
+                          {aiTestStatus === "testing" ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : aiTestStatus === "success" ? (
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                          ) : (
+                            <Sparkles className="h-3.5 w-3.5" />
+                          )}
+                          {t("settings.testAISettings")}
                         </Button>
                         <Button onClick={saveAISettings} size="sm" type="button">
                           <CheckCircle2 className="h-3.5 w-3.5" />
@@ -456,45 +523,7 @@ export function TopBar({
                         {t("settings.tokenPolicyHint")}
                       </p>
                     </div>
-                    <Badge tone="accent">{t("processing.index")}</Badge>
-                  </div>
-
-                  <div className="mt-3 grid gap-1.5">
-                    {tokenPolicyOptions.map((option) => {
-                      const selected = aiProviderConfig.tokenPolicy === option.value;
-
-                      return (
-                        <button
-                          aria-pressed={selected}
-                          className={[
-                            "grid w-full grid-cols-[20px_minmax(0,1fr)] gap-2 rounded-md border px-2.5 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                            selected
-                              ? "border-primary/[0.30] bg-primary/10 text-foreground"
-                              : "border-border/70 bg-white/[0.26] text-muted-foreground hover:bg-white/[0.48] hover:text-foreground dark:bg-background/[0.10] dark:hover:bg-secondary/[0.32]",
-                          ].join(" ")}
-                          data-token-policy-option={option.value}
-                          key={option.value}
-                          onClick={() => updateAIProviderConfig("tokenPolicy", option.value)}
-                          type="button"
-                        >
-                          <span
-                            aria-hidden="true"
-                            className={[
-                              "mt-0.5 flex h-4 w-4 items-center justify-center rounded-full border",
-                              selected ? "border-primary bg-primary" : "border-border bg-background/[0.42]",
-                            ].join(" ")}
-                          >
-                            {selected && <span className="h-1.5 w-1.5 rounded-full bg-primary-foreground" />}
-                          </span>
-                          <span className="min-w-0">
-                            <span className="block text-xs font-semibold">{t(option.labelKey)}</span>
-                            <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
-                              {t(option.descriptionKey)}
-                            </span>
-                          </span>
-                        </button>
-                      );
-                    })}
+                    <Badge tone="accent">{t("settings.onDemand")}</Badge>
                   </div>
 
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">

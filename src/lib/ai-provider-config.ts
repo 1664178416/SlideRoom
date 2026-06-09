@@ -1,10 +1,7 @@
-export type TokenPolicyMode = "on-demand" | "warm-current" | "full-deck";
-
 export type AIProviderConfig = {
   apiKey: string;
   baseUrl: string;
   model: string;
-  tokenPolicy: TokenPolicyMode;
 };
 
 const aiProviderConfigStorageKey = "slideroom-ai-provider-config-v1";
@@ -13,15 +10,10 @@ export const defaultAIProviderConfig: AIProviderConfig = {
   apiKey: "",
   baseUrl: "https://api.openai.com/v1",
   model: "",
-  tokenPolicy: "on-demand",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isTokenPolicyMode(value: unknown): value is TokenPolicyMode {
-  return value === "on-demand" || value === "warm-current" || value === "full-deck";
 }
 
 export function sanitizeAIProviderConfig(value: unknown): AIProviderConfig {
@@ -34,9 +26,6 @@ export function sanitizeAIProviderConfig(value: unknown): AIProviderConfig {
         ? value.baseUrl.trim()
         : defaultAIProviderConfig.baseUrl,
     model: typeof value.model === "string" ? value.model.trim() : "",
-    tokenPolicy: isTokenPolicyMode(value.tokenPolicy)
-      ? value.tokenPolicy
-      : defaultAIProviderConfig.tokenPolicy,
   };
 }
 

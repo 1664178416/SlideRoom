@@ -189,14 +189,19 @@ export function SlideRail({ currentSlide, onSelect, onQueryChange, query, search
       <div className="mt-1 min-h-0 flex-1 overflow-y-auto pr-1">
         {viewMode === "thumbnails" ? (
           <div className="space-y-2">
-            {filteredSlides.map((slide) => {
+            {filteredSlides.map((slide, index) => {
               const active = slide.id === currentSlide.id;
               const displayTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
+              const showSectionMeta = slide.section !== "imported";
 
               return (
                 <motion.button
                   aria-current={active ? "true" : undefined}
-                  aria-label={`${formatSlideLabel(slide.pageNumber, language)} · ${displayTitle} · ${t("common.section")}: ${t(getSlideSectionKey(slide.section))}`}
+                  aria-label={
+                    showSectionMeta
+                      ? `${formatSlideLabel(slide.pageNumber, language)} · ${displayTitle} · ${t("common.section")}: ${t(getSlideSectionKey(slide.section))}`
+                      : `${formatSlideLabel(slide.pageNumber, language)} · ${displayTitle}`
+                  }
                   className={cn(
                     "group w-full rounded-md border p-1.5 text-left transition",
                     active
@@ -208,18 +213,20 @@ export function SlideRail({ currentSlide, onSelect, onQueryChange, query, search
                   onClick={() => onSelect(slide)}
                   whileTap={{ scale: 0.98 }}
                 >
-                  <SlideArt slide={slide} compact />
+                  <SlideArt slide={slide} compact priority={index < 4} />
                   <div className="mt-2 flex min-w-0 items-center justify-between gap-2 px-0.5">
                     <div className="min-w-0">
                       <div className="truncate text-xs font-medium">
                         {formatSlideLabel(slide.pageNumber, language)} · {displayTitle}
                       </div>
-                      <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-                        <span className="shrink-0 rounded-[4px] border border-border/70 bg-background/[0.48] px-1.5 py-0.5 leading-none dark:bg-background/[0.14]">
-                          {t("common.section")}
-                        </span>
-                        <span className="truncate">{t(getSlideSectionKey(slide.section))}</span>
-                      </div>
+                      {showSectionMeta && (
+                        <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <span className="shrink-0 rounded-[4px] border border-border/70 bg-background/[0.48] px-1.5 py-0.5 leading-none dark:bg-background/[0.14]">
+                            {t("common.section")}
+                          </span>
+                          <span className="truncate">{t(getSlideSectionKey(slide.section))}</span>
+                        </div>
+                      )}
                     </div>
                     {active && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary/[0.76]" />}
                   </div>
@@ -236,11 +243,13 @@ export function SlideRail({ currentSlide, onSelect, onQueryChange, query, search
               >
                 <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
                   <div className="min-w-0">
-                    <div className="truncate text-[11px] font-semibold uppercase text-muted-foreground">
-                      {t("common.section")}
-                    </div>
+                    {group.section !== "imported" && (
+                      <div className="truncate text-[11px] font-semibold uppercase text-muted-foreground">
+                        {t("common.section")}
+                      </div>
+                    )}
                     <div className="truncate text-xs font-semibold text-foreground">
-                      {t(getSlideSectionKey(group.section))}
+                      {group.section === "imported" ? t("rail.slides") : t(getSlideSectionKey(group.section))}
                     </div>
                   </div>
                   <span className="rounded-[5px] border border-border bg-background/[0.52] px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
