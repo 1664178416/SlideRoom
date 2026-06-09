@@ -11,6 +11,10 @@ export type GenerateAIResult =
       ok: false;
     };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export async function generateAIResponse({
   config,
   language,
@@ -47,10 +51,10 @@ export async function generateAIResponse({
   }
 
   const responseText = await response.text();
-  let result: GenerateAIResult;
+  let result: unknown;
 
   try {
-    result = JSON.parse(responseText) as GenerateAIResult;
+    result = JSON.parse(responseText) as unknown;
   } catch {
     throw new Error(
       language === "zh"
@@ -59,8 +63,30 @@ export async function generateAIResponse({
     );
   }
 
+  if (!isRecord(result) || typeof result.ok !== "boolean") {
+    throw new Error(
+      language === "zh"
+        ? "AI 代理返回格式不正确。"
+        : "The AI proxy returned an unexpected response shape.",
+    );
+  }
+
   if (!result.ok) {
-    throw new Error(result.message);
+    throw new Error(
+      typeof result.message === "string" && result.message.trim()
+        ? result.message
+        : language === "zh"
+          ? "AI 请求失败。"
+          : "The AI request failed.",
+    );
+  }
+
+  if (typeof result.content !== "string") {
+    throw new Error(
+      language === "zh"
+        ? "AI 代理没有返回可读文本。"
+        : "The AI proxy did not return readable text.",
+    );
   }
 
   return result.content;

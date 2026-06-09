@@ -1275,6 +1275,7 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
               <Button
                 aria-label={clearArmed ? t("ai.confirmClearConversation") : t("ai.clearConversation")}
                 className={cn("h-[54px] px-2", clearArmed && "px-3")}
+                disabled={isGenerating}
                 onClick={handleClearConversation}
                 size="sm"
                 title={clearArmed ? t("ai.confirmClearConversation") : t("ai.clearConversation")}

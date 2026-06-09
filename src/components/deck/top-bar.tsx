@@ -253,7 +253,7 @@ export function TopBar({
       </div>
 
       <div
-        className="-mx-1 flex max-w-full items-center gap-1.5 overflow-x-auto px-1 pb-0.5 sm:mx-0 sm:max-w-none sm:overflow-visible sm:px-0 sm:pb-0"
+        className="scrollbar-none -mx-1 flex max-w-full items-center gap-1.5 overflow-x-auto px-1 pb-0.5 sm:mx-0 sm:max-w-none sm:overflow-visible sm:px-0 sm:pb-0"
         onClick={(event) => event.stopPropagation()}
         ref={controlsRef}
       >
