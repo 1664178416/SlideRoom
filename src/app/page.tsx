@@ -63,6 +63,7 @@ const uploadErrorMessageKeys: Record<UploadDeckErrorCode, TranslationKey> = {
 };
 
 const homeRecentDeckLimit = 4;
+const localPreviewDeckId = "local-preview";
 const demoContextStats = getSlideContextStats(slides);
 const demoRecentDeck: RecentDeck = {
   contextQuality: "parsed",
@@ -181,6 +182,39 @@ function formatRecentOpenedAt(openedAt: number, currentTimestamp: number, langua
   }
 }
 
+function buildLocalPreviewSlides({
+  deckId,
+  fileName,
+  inspectionStatus = "unsupported",
+  pageCount = 1,
+}: {
+  deckId: string;
+  fileName: string;
+  inspectionStatus?: DeckInspectionStatus;
+  pageCount?: number;
+}) {
+  const normalizedName = normalizeDeckFileName(fileName, deckMeta.fileName);
+  const normalizedPageCount = Math.max(1, Math.round(pageCount));
+
+  return getDeckSlides({
+    deckId,
+    fileName: normalizedName,
+    inspectionStatus,
+    originalFileName: normalizedName,
+    pageCount: normalizedPageCount,
+    renderStatus: "unavailable",
+    slides: Array.from({ length: normalizedPageCount }, (_, index) => ({
+      extractedText: "",
+      pageNumber: index + 1,
+      speakerNotes: "",
+    })),
+    size: 0,
+    status: "uploaded",
+    storageKey: "",
+    uploadedAt: getClientTimestamp(),
+  });
+}
+
 export default function HomePage() {
   const router = useRouter();
   const { language, t } = usePreferences();
@@ -233,10 +267,7 @@ export default function HomePage() {
           textSlideCount: 0,
         }
       : contextStats;
-  const optimisticUploadPending =
-    uploadState === "processing" &&
-    activeDeckId === deckMeta.id &&
-    fileName !== deckMeta.fileName;
+  const optimisticUploadPending = uploadState === "processing" && activeDeckId === localPreviewDeckId;
   const showContextQuality = uploadState !== "idle" && !optimisticUploadPending;
   const uploadErrorHint = uploadErrorCode ? t(uploadErrorMessageKeys[uploadErrorCode]) : null;
 
@@ -413,6 +444,7 @@ export default function HomePage() {
 
   function clearRecentHistory() {
     clearRecentDecks();
+    clearProcessingSession();
     refreshRecentDecks();
   }
 
@@ -431,11 +463,14 @@ export default function HomePage() {
     const uploadRequestId = uploadRequestIdRef.current;
 
     if (!isSupportedDeckFile(file)) {
+      const failedFileName = normalizeDeckFileName(file.name, deckMeta.fileName);
+
       clearProcessingTimers();
-      setFileName(normalizeDeckFileName(file.name, deckMeta.fileName));
+      setActiveDeckId(localPreviewDeckId);
+      setFileName(failedFileName);
       setActiveInspectionStatus("failed");
-      setActiveSlideCount(deckMeta.pageCount);
-      setPreviewSlides(slides);
+      setActiveSlideCount(1);
+      setPreviewSlides(buildLocalPreviewSlides({ deckId: localPreviewDeckId, fileName: failedFileName, inspectionStatus: "failed" }));
       setUploadErrorCode("unsupported_type");
       setUploadState("error");
       setProgress(0);
@@ -444,11 +479,14 @@ export default function HomePage() {
     }
 
     if (file.size <= 0) {
+      const failedFileName = normalizeDeckFileName(file.name, deckMeta.fileName);
+
       clearProcessingTimers();
-      setFileName(normalizeDeckFileName(file.name, deckMeta.fileName));
+      setActiveDeckId(localPreviewDeckId);
+      setFileName(failedFileName);
       setActiveInspectionStatus("failed");
-      setActiveSlideCount(deckMeta.pageCount);
-      setPreviewSlides(slides);
+      setActiveSlideCount(1);
+      setPreviewSlides(buildLocalPreviewSlides({ deckId: localPreviewDeckId, fileName: failedFileName, inspectionStatus: "failed" }));
       setUploadErrorCode("empty_file");
       setUploadState("error");
       setProgress(0);
@@ -457,11 +495,14 @@ export default function HomePage() {
     }
 
     if (file.size > maxUploadFileSizeBytes) {
+      const failedFileName = normalizeDeckFileName(file.name, deckMeta.fileName);
+
       clearProcessingTimers();
-      setFileName(normalizeDeckFileName(file.name, deckMeta.fileName));
+      setActiveDeckId(localPreviewDeckId);
+      setFileName(failedFileName);
       setActiveInspectionStatus("failed");
-      setActiveSlideCount(deckMeta.pageCount);
-      setPreviewSlides(slides);
+      setActiveSlideCount(1);
+      setPreviewSlides(buildLocalPreviewSlides({ deckId: localPreviewDeckId, fileName: failedFileName, inspectionStatus: "failed" }));
       setUploadErrorCode("file_too_large");
       setUploadState("error");
       setProgress(0);
@@ -472,11 +513,11 @@ export default function HomePage() {
     const optimisticFileName = normalizeDeckFileName(file.name, deckMeta.fileName);
 
     clearProcessingTimers();
-    setActiveDeckId(deckMeta.id);
-    setActiveInspectionStatus("parsed");
+    setActiveDeckId(localPreviewDeckId);
+    setActiveInspectionStatus("unsupported");
     setFileName(optimisticFileName);
-    setActiveSlideCount(deckMeta.pageCount);
-    setPreviewSlides(slides);
+    setActiveSlideCount(1);
+    setPreviewSlides(buildLocalPreviewSlides({ deckId: localPreviewDeckId, fileName: optimisticFileName }));
     setUploadErrorCode(null);
     setUploadState("processing");
     setProgress(4);
@@ -513,10 +554,11 @@ export default function HomePage() {
       if (uploadRequestId !== uploadRequestIdRef.current) return;
 
       clearProcessingTimers();
+      setActiveDeckId(localPreviewDeckId);
       setFileName(optimisticFileName);
       setActiveInspectionStatus("failed");
-      setActiveSlideCount(deckMeta.pageCount);
-      setPreviewSlides(slides);
+      setActiveSlideCount(1);
+      setPreviewSlides(buildLocalPreviewSlides({ deckId: localPreviewDeckId, fileName: optimisticFileName, inspectionStatus: "failed" }));
       setUploadErrorCode(isUploadDeckFileError(error) ? error.errorCode : "upload_failed");
       setUploadState("error");
       setProgress(0);

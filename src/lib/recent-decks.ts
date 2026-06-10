@@ -16,8 +16,8 @@ export type RecentDeck = {
 
 type RecentDeckInput = {
   contextQuality?: DeckContextQuality;
-  deckId: string;
-  fileName: string;
+  deckId?: string;
+  fileName?: string;
   openedAt?: number;
   speakerNotesSlideCount?: number;
   slideCount?: number;
@@ -34,19 +34,6 @@ function isDeckContextQuality(value: unknown): value is DeckContextQuality {
 
 function sanitizeSlideCount(value: unknown, fallback = 0) {
   return Math.max(0, Math.round(typeof value === "number" && Number.isFinite(value) ? value : fallback));
-}
-
-function isRecentDeck(value: unknown): value is RecentDeck {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-
-  const candidate = value as Partial<RecentDeck>;
-  return (
-    typeof candidate.deckId === "string" &&
-    typeof candidate.fileName === "string" &&
-    typeof candidate.openedAt === "number" &&
-    typeof candidate.slideCount === "number" &&
-    (candidate.status === "processing" || candidate.status === "ready")
-  );
 }
 
 function getRecentDeckKey(deck: Pick<RecentDeck, "deckId" | "fileName">) {
@@ -77,11 +64,14 @@ function mergeRecentDeck(existingDeck: RecentDeck, incomingDeck: RecentDeck): Re
 }
 
 function sanitizeRecentDeck(deck: RecentDeckInput): RecentDeck | null {
+  if (typeof deck.deckId !== "string" || typeof deck.fileName !== "string") return null;
+
   const deckId = deck.deckId.trim();
   const fileName = normalizeDeckFileName(deck.fileName);
   const slideCount = sanitizeSlideCount(deck.slideCount);
   const textSlideCount = sanitizeSlideCount(deck.textSlideCount);
   const speakerNotesSlideCount = sanitizeSlideCount(deck.speakerNotesSlideCount);
+  const openedAt = typeof deck.openedAt === "number" && Number.isFinite(deck.openedAt) ? deck.openedAt : Date.now();
 
   if (!deckId || !fileName) return null;
 
@@ -89,7 +79,7 @@ function sanitizeRecentDeck(deck: RecentDeckInput): RecentDeck | null {
     ...(isDeckContextQuality(deck.contextQuality) ? { contextQuality: deck.contextQuality } : {}),
     deckId,
     fileName,
-    openedAt: Math.min(Date.now(), Math.max(0, deck.openedAt ?? Date.now())),
+    openedAt: Math.min(Date.now(), Math.max(0, openedAt)),
     ...(deck.speakerNotesSlideCount !== undefined ? { speakerNotesSlideCount: Math.min(slideCount, speakerNotesSlideCount) } : {}),
     slideCount,
     status: deck.status === "processing" ? "processing" : "ready",
@@ -139,7 +129,9 @@ export function readRecentDecks() {
     const parsedDecks = JSON.parse(storedDecks) as unknown;
     if (!Array.isArray(parsedDecks)) return [];
 
-    return normalizeRecentDecks(parsedDecks.filter(isRecentDeck));
+    return normalizeRecentDecks(
+      parsedDecks.filter((deck): deck is RecentDeckInput => typeof deck === "object" && deck !== null && !Array.isArray(deck)),
+    );
   } catch {
     return [];
   }

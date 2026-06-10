@@ -19,6 +19,7 @@ import {
   getGeneratedSlideTitle,
   getSlideSectionLabel,
   getSlideSectionKey,
+  type TranslationKey,
   usePreferences,
 } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
@@ -48,6 +49,42 @@ type CommandItem = {
 };
 
 const maxCommandSlides = 7;
+const maxImportedCommandPreviewLength = 96;
+
+function normalizeCommandPreview(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function clipCommandPreview(value: string) {
+  const cleanValue = normalizeCommandPreview(value);
+  if (cleanValue.length <= maxImportedCommandPreviewLength) return cleanValue;
+
+  return `${cleanValue.slice(0, maxImportedCommandPreviewLength - 3).trimEnd()}...`;
+}
+
+function getRawImportedCommandPreview(slide: Slide): { key: TranslationKey; value: string } {
+  const rawText = normalizeCommandPreview(slide.extractedText);
+  const rawNotes = normalizeCommandPreview(slide.speakerNotes);
+
+  if (rawText) {
+    return {
+      key: "rail.rawExcerpt",
+      value: clipCommandPreview(rawText),
+    };
+  }
+
+  if (rawNotes) {
+    return {
+      key: "rail.rawNotes",
+      value: clipCommandPreview(rawNotes),
+    };
+  }
+
+  return {
+    key: "rail.noReadableText",
+    value: "",
+  };
+}
 
 function matchesQuery(query: string, values: string[]) {
   if (!query) return true;
@@ -97,7 +134,10 @@ function WorkspaceCommandMenuDialog({
       .filter((slide) => {
         const slideLabel = formatSlideLabel(slide.pageNumber, language);
         const slideTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
-        const slideSummary = getGeneratedSlideSummary(slide.summary, slide.pageNumber, language);
+        const importedPreview = slide.section === "imported" ? getRawImportedCommandPreview(slide) : null;
+        const slideSummary = importedPreview
+          ? importedPreview.value || t(importedPreview.key)
+          : getGeneratedSlideSummary(slide.summary, slide.pageNumber, language);
         const sectionKey = getSlideSectionKey(slide.section);
 
         return matchesQuery(normalizedQuery, [
@@ -110,8 +150,8 @@ function WorkspaceCommandMenuDialog({
           getGeneratedSlideTitle(slide.title, slide.pageNumber, "zh"),
           getGeneratedSlideTitle(slide.title, slide.pageNumber, "en"),
           slideSummary,
-          getGeneratedSlideSummary(slide.summary, slide.pageNumber, "zh"),
-          getGeneratedSlideSummary(slide.summary, slide.pageNumber, "en"),
+          importedPreview ? t(importedPreview.key) : getGeneratedSlideSummary(slide.summary, slide.pageNumber, "zh"),
+          importedPreview ? "" : getGeneratedSlideSummary(slide.summary, slide.pageNumber, "en"),
           slide.section,
           sectionKey,
           t(sectionKey),
@@ -125,7 +165,10 @@ function WorkspaceCommandMenuDialog({
       .map((slide) => {
         const slideLabel = formatSlideLabel(slide.pageNumber, language);
         const slideTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
-        const slideMeta = slide.section === "imported" ? t("rail.slides") : t(getSlideSectionKey(slide.section));
+        const importedPreview = slide.section === "imported" ? getRawImportedCommandPreview(slide) : null;
+        const slideMeta = importedPreview
+          ? `${t(importedPreview.key)}${importedPreview.value ? ` · ${importedPreview.value}` : ""}`
+          : t(getSlideSectionKey(slide.section));
 
         return {
           id: `slide-${slide.id}`,
@@ -183,7 +226,7 @@ function WorkspaceCommandMenuDialog({
       {
         id: "action-export",
         icon: Download,
-        keywords: ["export", "download", "deck notes", "markdown", "导出", "下载", "文稿笔记"],
+        keywords: ["export", "download", "deck notes", "speaker notes", "markdown", "导出", "下载", "整份备注", "备注"],
         label: t("command.exportDeck"),
         meta: t("common.export"),
         run: () => {

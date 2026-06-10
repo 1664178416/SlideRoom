@@ -12,6 +12,8 @@ const importedAccents = [
 
 const maxImportedBullets = 3;
 const maxImportedMetrics = 2;
+const importedVisualReadyMarker = "imported-rendered-preview-ready";
+const importedVisualUnavailableMarker = "imported-preview-unavailable";
 const numericSignalPattern = /(?:[$¥€]\s*)?\d+(?:,\d{3})*(?:\.\d+)?\s*(?:%|pt|pts|x|k|m|b|K|M|B)?/g;
 const sentenceSeparatorPattern = /[.!?;\u3002\uff01\uff1f\uff1b\n]+/;
 
@@ -158,14 +160,7 @@ function getImportedSlideChart(pageNumber: number, context?: UploadedSlideContex
 }
 
 function getImportedVisualSummary(context?: UploadedSlideContext) {
-  const textLineCount = getExtractedLines(context).length;
-  const noteLength = normalizeText(context?.speakerNotes ?? "").length;
-
-  if (textLineCount > 0 || noteLength > 0) {
-    return `Page text and speaker notes are ready for slide-level reading and questions.`;
-  }
-
-  return `Preview image is unavailable on this device. You can still use extracted text and speaker notes when available.`;
+  return context?.imageUrl ? importedVisualReadyMarker : importedVisualUnavailableMarker;
 }
 
 function getImportedSlide(pageNumber: number, session: UploadedDeckSession, context?: UploadedSlideContext): Slide {

@@ -28,7 +28,7 @@ type ProviderAttempt =
 
 const maxPromptLength = 18000;
 const defaultModelOutputTokens = 120;
-const minModelOutputTokens = 32;
+const minModelOutputTokens = 8;
 const maxModelOutputTokens = 240;
 const providerRequestTimeoutMs = 45000;
 
@@ -144,14 +144,14 @@ function getNetworkErrorMessage(error: unknown, endpoint: string, language: Lang
 
   if (language === "zh") {
     return [
-      `无法连接到模型服务：${endpoint}`,
+      "无法连接到模型服务。",
       "请检查 Base URL 是否正确、当前网络/代理是否能访问该域名，以及服务商是否支持对应的 OpenAI-compatible 接口。",
       `底层错误：${detail}`,
     ].join("\n");
   }
 
   return [
-    `Could not connect to the model provider: ${endpoint}`,
+    "Could not connect to the model provider.",
     "Check whether the Base URL is correct, your network/proxy can reach the domain, and the provider supports the matching OpenAI-compatible endpoint.",
     `Low-level error: ${detail}`,
   ].join("\n");
@@ -163,9 +163,10 @@ function getSystemPrompt(language: Language) {
       "你是 SlideRoom 的 PPT 阅读助手。",
       "只根据用户提供的幻灯片上下文回答，不要编造不存在的数据。",
       "默认输出要短，目标是帮用户少读，而不是替 PPT 写文章。",
-      "严格遵守用户要求的行数和字数；预设生成最多 1-2 行，只写短语或短句，宁可少写。",
+      "严格遵守用户要求的行数和字数；预设生成只写 1 行短句，宁可少写。",
       "不要解释你为什么这样判断，不要补充背景，不要复述页面原文。",
-      "除非用户明确要求展开，否则最多 3 行；每行只保留一个判断。",
+      "不要使用项目符号、编号、Markdown 或多段落，除非用户明确要求。",
+      "除非用户明确要求展开，否则最多 2 行；每行只保留一个判断。",
       "不要写 Markdown 标题、铺垫、客套或长段落。",
     ].join("\n");
   }
@@ -174,9 +175,10 @@ function getSystemPrompt(language: Language) {
     "You are SlideRoom's PPT reading assistant.",
     "Answer only from the slide context provided by the user. Do not invent missing data.",
     "Default to short answers that save reading time instead of rewriting the slide.",
-    "Strictly follow the requested line and length limits. Presets must stay within 1-2 lines; use phrases or very short sentences and write less.",
+    "Strictly follow the requested line and length limits. Presets must be one short line; write less.",
     "Do not explain your reasoning, add background, or restate slide text.",
-    "Unless the user asks for depth, keep the answer to 3 lines with one judgment per line.",
+    "Do not use bullets, numbering, Markdown, or multiple paragraphs unless the user explicitly asks.",
+    "Unless the user asks for depth, keep the answer to 2 lines with one judgment per line.",
     "Do not use Markdown headings, preambles, pleasantries, or long paragraphs.",
   ].join("\n");
 }
@@ -299,6 +301,15 @@ function getProviderErrorMessage(payload: unknown, status: number) {
   return `Provider request failed with status ${status}.`;
 }
 
+function redactSensitiveText(value: string, config: AIProviderConfig) {
+  const apiKey = config.apiKey.trim();
+  const redactedValue = apiKey ? value.split(apiKey).join("[redacted-api-key]") : value;
+
+  return redactedValue
+    .replace(/Bearer\s+[^\s,;"')]+/gi, "Bearer [redacted]")
+    .replace(/\bsk-[A-Za-z0-9_-]{12,}\b/g, "sk-[redacted]");
+}
+
 async function requestProvider({
   body,
   config,
@@ -329,7 +340,7 @@ async function requestProvider({
     if (!providerResponse.ok) {
       return {
         endpoint,
-        message: getProviderErrorMessage(providerPayload, providerResponse.status),
+        message: redactSensitiveText(getProviderErrorMessage(providerPayload, providerResponse.status), config),
         mode,
         ok: false,
         status: providerResponse.status,
@@ -356,7 +367,7 @@ async function requestProvider({
   } catch (error) {
     return {
       endpoint,
-      message: getNetworkErrorMessage(error, endpoint, language),
+      message: redactSensitiveText(getNetworkErrorMessage(error, endpoint, language), config),
       mode,
       ok: false,
     };
@@ -375,7 +386,6 @@ function formatAttemptFailure(attempt: Extract<ProviderAttempt, { ok: false }>) 
 
   return [
     `${providerModeLabels[attempt.mode]} (${status})`,
-    `Endpoint: ${attempt.endpoint}`,
     attempt.message,
   ].join("\n");
 }
@@ -383,11 +393,24 @@ function formatAttemptFailure(attempt: Extract<ProviderAttempt, { ok: false }>) 
 function getCombinedFailureMessage(
   language: Language,
   attempts: Array<Extract<ProviderAttempt, { ok: false }>>,
+  modePreference: AIProviderConfig["providerMode"],
 ) {
+  const routeNote = modePreference === "responses"
+    ? language === "zh"
+      ? "当前接口模式固定为 Responses API。"
+      : "The interface mode is fixed to Responses API."
+    : modePreference === "chat_completions"
+      ? language === "zh"
+        ? "当前接口模式固定为 Chat Completions。"
+        : "The interface mode is fixed to Chat Completions."
+      : language === "zh"
+        ? "已按自动模式先尝试 Responses API；如可回退，再尝试 Chat Completions。"
+        : "Auto mode tried Responses API first, then Chat Completions when fallback was allowed.";
+
   if (language === "zh") {
     return [
       "模型请求失败，未生成结果。",
-      "已尝试 Responses API；如果服务商不支持，再回退到 Chat Completions。",
+      routeNote,
       "",
       ...attempts.map(formatAttemptFailure),
     ].join("\n\n");
@@ -395,7 +418,7 @@ function getCombinedFailureMessage(
 
   return [
     "The model request failed. No result was generated.",
-    "SlideRoom tried Responses API first, then Chat Completions when the provider looked compatible with a fallback.",
+    routeNote,
     "",
     ...attempts.map(formatAttemptFailure),
   ].join("\n\n");
@@ -429,73 +452,86 @@ export async function POST(request: NextRequest) {
   };
   const clippedPrompt = prompt.slice(0, maxPromptLength);
   const systemPrompt = getSystemPrompt(language);
-  const responsesEndpoint = buildResponsesEndpoint(normalizedConfig.baseUrl);
-  const responsesAttempt = await requestProvider({
-    body: {
-      input: clippedPrompt,
-      instructions: systemPrompt,
-      max_output_tokens: outputTokenLimit,
-      model: config.model,
-      temperature: 0.2,
-    },
-    config: normalizedConfig,
-    endpoint: responsesEndpoint,
-    language,
-    mode: "responses",
-    parseContent: parseResponsesContent,
-  });
+  const shouldUseResponses = normalizedConfig.providerMode === "auto" || normalizedConfig.providerMode === "responses";
+  const shouldUseChat = normalizedConfig.providerMode === "auto" || normalizedConfig.providerMode === "chat_completions";
+  const failedAttempts: Array<Extract<ProviderAttempt, { ok: false }>> = [];
 
-  if (responsesAttempt.ok) {
-    return NextResponse.json({
-      content: responsesAttempt.content,
-      ok: true,
-      providerMode: responsesAttempt.mode,
+  if (shouldUseResponses) {
+    const responsesEndpoint = buildResponsesEndpoint(normalizedConfig.baseUrl);
+    const responsesAttempt = await requestProvider({
+      body: {
+        input: clippedPrompt,
+        instructions: systemPrompt,
+        max_output_tokens: outputTokenLimit,
+        model: config.model,
+        temperature: 0.2,
+      },
+      config: normalizedConfig,
+      endpoint: responsesEndpoint,
+      language,
+      mode: "responses",
+      parseContent: parseResponsesContent,
     });
+
+    if (responsesAttempt.ok) {
+      return NextResponse.json({
+        content: responsesAttempt.content,
+        ok: true,
+        providerMode: responsesAttempt.mode,
+      });
+    }
+
+    failedAttempts.push(responsesAttempt);
+
+    if (normalizedConfig.providerMode === "responses" || !shouldTryChatFallback(responsesAttempt)) {
+      return errorResponse(
+        getCombinedFailureMessage(language, failedAttempts, normalizedConfig.providerMode),
+        responsesAttempt.status ?? 502,
+      );
+    }
   }
 
-  if (!shouldTryChatFallback(responsesAttempt)) {
-    return errorResponse(
-      getCombinedFailureMessage(language, [responsesAttempt]),
-      responsesAttempt.status ?? 502,
-    );
-  }
-
-  const chatEndpoint = buildChatCompletionsEndpoint(normalizedConfig.baseUrl);
-  const chatAttempt = await requestProvider({
-    body: {
-      max_tokens: outputTokenLimit,
-      messages: [
-        {
-          content: systemPrompt,
-          role: "system",
-        },
-        {
-          content: clippedPrompt,
-          role: "user",
-        },
-      ],
-      model: config.model,
-      temperature: 0.2,
-    },
-    config: normalizedConfig,
-    endpoint: chatEndpoint,
-    language,
-    mode: "chat_completions",
-    parseContent: parseChatCompletionsContent,
-  });
-
-  if (chatAttempt.ok) {
-    return NextResponse.json({
-      content: chatAttempt.content,
-      ok: true,
-      providerMode: chatAttempt.mode,
+  if (shouldUseChat) {
+    const chatEndpoint = buildChatCompletionsEndpoint(normalizedConfig.baseUrl);
+    const chatAttempt = await requestProvider({
+      body: {
+        max_tokens: outputTokenLimit,
+        messages: [
+          {
+            content: systemPrompt,
+            role: "system",
+          },
+          {
+            content: clippedPrompt,
+            role: "user",
+          },
+        ],
+        model: config.model,
+        temperature: 0.2,
+      },
+      config: normalizedConfig,
+      endpoint: chatEndpoint,
+      language,
+      mode: "chat_completions",
+      parseContent: parseChatCompletionsContent,
     });
+
+    if (chatAttempt.ok) {
+      return NextResponse.json({
+        content: chatAttempt.content,
+        ok: true,
+        providerMode: chatAttempt.mode,
+      });
+    }
+
+    failedAttempts.push(chatAttempt);
   }
 
-  const status = chatAttempt.status && [401, 403, 429].includes(chatAttempt.status) ? chatAttempt.status : 502;
+  const lastAttempt = failedAttempts[failedAttempts.length - 1];
+  const status = lastAttempt?.status && [401, 403, 429].includes(lastAttempt.status) ? lastAttempt.status : 502;
 
   return errorResponse(
-    getCombinedFailureMessage(language, [responsesAttempt, chatAttempt]),
+    getCombinedFailureMessage(language, failedAttempts, normalizedConfig.providerMode),
     status,
   );
 }

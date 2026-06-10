@@ -631,8 +631,8 @@ export default function DeckWorkspacePage() {
 
   const exportDeck = useCallback(() => {
     const markdown = buildDeckMarkdownExport({
-      contextQuality,
       contextStats,
+      deckId,
       deckFileName,
       deckSlides,
       deckTitle,
@@ -659,7 +659,7 @@ export default function DeckWorkspacePage() {
       setExportReady(false);
       exportReadyTimerRef.current = null;
     }, 1800);
-  }, [contextQuality, contextStats, deckFileName, deckSlides, deckTitle, language, pageCount, t]);
+  }, [contextStats, deckFileName, deckId, deckSlides, deckTitle, language, pageCount, t]);
 
   useEffect(() => {
     return () => {
@@ -731,12 +731,21 @@ export default function DeckWorkspacePage() {
         selectSlideByIndex(deckSlides.length - 1);
       }
 
-      if (event.key === "ArrowLeft" || event.key === "PageUp") {
+      if (event.key === " ") {
+        event.preventDefault();
+        selectSlideByIndex(
+          event.shiftKey
+            ? Math.max(0, currentSlideIndex - 1)
+            : Math.min(deckSlides.length - 1, currentSlideIndex + 1),
+        );
+      }
+
+      if (event.key === "ArrowLeft" || event.key === "ArrowUp" || event.key === "PageUp") {
         event.preventDefault();
         selectSlideByIndex(Math.max(0, currentSlideIndex - 1));
       }
 
-      if (event.key === "ArrowRight" || event.key === "PageDown") {
+      if (event.key === "ArrowRight" || event.key === "ArrowDown" || event.key === "PageDown") {
         event.preventDefault();
         selectSlideByIndex(Math.min(deckSlides.length - 1, currentSlideIndex + 1));
       }
@@ -873,11 +882,16 @@ export default function DeckWorkspacePage() {
             onZoomChange={setZoom}
           />
         </div>
-        {inspectorOpen && (
-          <div className="order-2 min-h-0 min-w-0 lg:order-3 lg:h-full" data-workspace-inspector="true">
-            <AIInspector deckSlides={deckSlides} slide={currentSlide} />
-          </div>
-        )}
+        <div
+          aria-hidden={!inspectorOpen}
+          className={cn(
+            "order-2 min-h-0 min-w-0 lg:order-3 lg:h-full",
+            !inspectorOpen && "hidden",
+          )}
+          data-workspace-inspector="true"
+        >
+          <AIInspector key={deckId} deckId={deckId} deckSlides={deckSlides} slide={currentSlide} />
+        </div>
         {railOpen && (
           <div className="order-3 min-h-0 min-w-0 lg:order-1 lg:h-full" data-workspace-rail="true">
             <SlideRail

@@ -1,10 +1,13 @@
 import type { AIProviderConfig } from "@/lib/ai-provider-config";
 import type { Language } from "@/lib/preferences";
 
+export type AIProviderMode = "chat_completions" | "responses";
+
 export type GenerateAIResult =
   | {
       content: string;
       ok: true;
+      providerMode?: AIProviderMode;
     }
   | {
       message: string;
@@ -15,7 +18,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export async function generateAIResponse({
+function isAIProviderMode(value: unknown): value is AIProviderMode {
+  return value === "chat_completions" || value === "responses";
+}
+
+export async function generateAI({
   config,
   language,
   maxOutputTokens,
@@ -89,5 +96,14 @@ export async function generateAIResponse({
     );
   }
 
+  return {
+    content: result.content,
+    ok: true,
+    ...(isAIProviderMode(result.providerMode) ? { providerMode: result.providerMode } : {}),
+  } satisfies GenerateAIResult;
+}
+
+export async function generateAIResponse(input: Parameters<typeof generateAI>[0]) {
+  const result = await generateAI(input);
   return result.content;
 }

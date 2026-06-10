@@ -71,6 +71,10 @@ function sanitizeUploadedDeckSession(value: unknown): UploadedDeckSession | null
     inspectionStatus: isInspectionStatus(value.inspectionStatus) ? value.inspectionStatus : "unsupported",
     originalFileName,
     pageCount,
+    renderAttemptedAt:
+      typeof value.renderAttemptedAt === "number" && Number.isFinite(value.renderAttemptedAt) && value.renderAttemptedAt >= 0
+        ? value.renderAttemptedAt
+        : undefined,
     renderStatus:
       value.renderStatus === "rendered" || value.renderStatus === "unavailable" || value.renderStatus === "failed"
         ? value.renderStatus

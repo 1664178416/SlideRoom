@@ -1,7 +1,10 @@
+export type AIProviderModePreference = "auto" | "chat_completions" | "responses";
+
 export type AIProviderConfig = {
   apiKey: string;
   baseUrl: string;
   model: string;
+  providerMode: AIProviderModePreference;
 };
 
 const aiProviderConfigStorageKey = "slideroom-ai-provider-config-v1";
@@ -10,10 +13,15 @@ export const defaultAIProviderConfig: AIProviderConfig = {
   apiKey: "",
   baseUrl: "https://api.openai.com/v1",
   model: "",
+  providerMode: "auto",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isAIProviderModePreference(value: unknown): value is AIProviderModePreference {
+  return value === "auto" || value === "chat_completions" || value === "responses";
 }
 
 export function sanitizeAIProviderConfig(value: unknown): AIProviderConfig {
@@ -26,6 +34,9 @@ export function sanitizeAIProviderConfig(value: unknown): AIProviderConfig {
         ? value.baseUrl.trim()
         : defaultAIProviderConfig.baseUrl,
     model: typeof value.model === "string" ? value.model.trim() : "",
+    providerMode: isAIProviderModePreference(value.providerMode)
+      ? value.providerMode
+      : defaultAIProviderConfig.providerMode,
   };
 }
 

@@ -1,4 +1,4 @@
-﻿import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
@@ -37,8 +37,10 @@ import {
   getContextTitle,
   getMessageCounterSeed,
   getResultMode,
+  resolvePresetOutputTokens,
   quickActionDefinitions,
   readAIInspectorState,
+  resolveQuestionOutputTokens,
   writeAIInspectorState,
   type AssistantMessage,
   type AssistantResult,
@@ -65,8 +67,29 @@ type ConversationHistoryItem = {
   contextMode: ContextMode;
   label: string;
   promptKey?: TranslationKey;
+  status: "error" | "pending" | "success";
   userId: string;
 };
+
+type GeneratingRequest = {
+  action: QuickActionId;
+  id: string;
+  slideId: string;
+};
+
+function getReadableContextSlides(slide: Slide, contextMode: ContextMode, deckSlides: Slide[]) {
+  const activeIndex = Math.max(0, deckSlides.findIndex((item) => item.id === slide.id));
+  const contextSlides =
+    contextMode === "current"
+      ? [slide]
+      : contextMode === "nearby"
+        ? deckSlides.slice(Math.max(0, activeIndex - 1), Math.min(deckSlides.length, activeIndex + 2))
+        : deckSlides;
+
+  return contextSlides.filter((contextSlide) => {
+    return contextSlide.extractedText.trim().length > 0 || contextSlide.speakerNotes.trim().length > 0;
+  });
+}
 
 function ResultNotesPanel({
   compact,
@@ -82,13 +105,11 @@ function ResultNotesPanel({
   ].filter((line) => line.trim().length > 0);
 
   if (compact && !result.error) {
+    const compactLines = noteLines.slice(0, 1);
+
     return (
-      <div className="flex min-h-0 flex-1 flex-col border-t border-border/[0.54] bg-background/[0.06] p-2.5">
-        <div className="grid gap-2">
-          {noteLines.slice(0, 2).map((line, index) => (
-            <CompactResultLine key={`${result.title}-${index}`} line={line} />
-          ))}
-        </div>
+      <div className="flex min-h-0 flex-1 flex-col justify-center px-3 py-4">
+        <CompactResultCard lines={compactLines} />
       </div>
     );
   }
@@ -134,19 +155,37 @@ function getLabeledLineParts(line: string) {
   };
 }
 
-function CompactResultLine({ line }: { line: string }) {
-  const { body, label } = getLabeledLineParts(line);
+function CompactResultCard({ lines }: { lines: string[] }) {
+  const compactLines = lines
+    .map((line) => getLabeledLineParts(line))
+    .filter((line) => line.body.length > 0);
+
+  if (compactLines.length === 0) return null;
+
+  return (
+    <div className="relative mx-auto w-full max-w-[300px] overflow-hidden rounded-md border border-primary/[0.20] bg-white/[0.72] px-3.5 py-3 shadow-[0_1px_0_rgba(255,255,255,0.72)_inset,0_16px_34px_rgba(15,23,42,0.06)] dark:bg-secondary/[0.34] dark:shadow-none">
+      <span className="pointer-events-none absolute inset-y-3 left-0 w-0.5 rounded-r-full bg-primary/[0.58]" aria-hidden="true" />
+      <div className="space-y-2">
+        {compactLines.map((line, index) => (
+          <CompactResultLine key={`${line.label}-${line.body}-${index}`} {...line} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CompactResultLine({ body, label }: { body: string; label: string }) {
   if (!body) return null;
 
   return (
-    <div className="rounded-md border border-border/[0.68] bg-white/[0.50] px-3 py-2.5 shadow-[0_1px_0_rgba(255,255,255,0.54)_inset] dark:bg-secondary/[0.24] dark:shadow-none">
+    <div>
       {label && (
-        <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase text-muted-foreground">
+        <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
           <span className="h-1 w-1 rounded-full bg-primary" aria-hidden="true" />
           {label}
         </div>
       )}
-      <p className="break-words text-[15px] font-medium leading-6 text-foreground/90">{body}</p>
+      <p className="break-words text-[15px] font-semibold leading-5 text-foreground/92">{body}</p>
     </div>
   );
 }
@@ -229,6 +268,7 @@ function AssistantResultPanel({
   compact,
   isGenerating,
   onRun,
+  runDisabled,
   result,
   t,
 }: {
@@ -236,6 +276,7 @@ function AssistantResultPanel({
   compact?: boolean;
   isGenerating: boolean;
   onRun: () => void;
+  runDisabled: boolean;
   result: AssistantResult;
   t: (key: TranslationKey) => string;
 }) {
@@ -246,6 +287,8 @@ function AssistantResultPanel({
   const metaDisclosureRef = useRef<HTMLDivElement | null>(null);
   const visibleSourceSlideLabels = result.sourceSlideLabels.slice(0, 2);
   const hiddenSourceSlideCount = Math.max(0, result.sourceSlideLabels.length - visibleSourceSlideLabels.length);
+  const showMeta = !compact || Boolean(result.error);
+  const effectiveMetaOpen = showMeta && metaOpen;
   const copyStatusLabel =
     copyFeedback === "copied"
       ? t("common.copied")
@@ -262,7 +305,7 @@ function AssistantResultPanel({
   }, []);
 
   useEffect(() => {
-    if (!metaOpen) return;
+    if (!effectiveMetaOpen) return;
 
     function handleDocumentMouseDown(event: MouseEvent) {
       const eventPath = event.composedPath();
@@ -284,23 +327,29 @@ function AssistantResultPanel({
       document.removeEventListener("mousedown", handleDocumentMouseDown);
       document.removeEventListener("keydown", handleDocumentKeyDown);
     };
-  }, [metaOpen]);
+  }, [effectiveMetaOpen]);
 
   async function copyResult() {
-    const copyText = [
-      result.title,
-      "",
-      result.summary,
-      "",
-      `${t("ai.context")}: ${result.contextNote}`,
-      `${t("ai.sources")}: ${result.sourceSlideText}`,
-      "",
-      ...result.sections.flatMap((section) => [
-        `## ${t(section.titleKey)}`,
-        section.content,
-        "",
-      ]),
-    ].join("\n");
+    const copyText = compact && !result.error
+      ? [
+          result.title,
+          "",
+          ...result.sections.flatMap((section) => section.content.split("\n")).filter(Boolean),
+        ].join("\n")
+      : [
+          result.title,
+          "",
+          result.summary,
+          "",
+          `${t("ai.context")}: ${result.contextNote}`,
+          `${t("ai.sources")}: ${result.sourceSlideText}`,
+          "",
+          ...result.sections.flatMap((section) => [
+            `## ${t(section.titleKey)}`,
+            section.content,
+            "",
+          ]),
+        ].join("\n");
 
     let didCopy = false;
 
@@ -363,7 +412,7 @@ function AssistantResultPanel({
           <button
             aria-label={`${t("ai.runPreset")} · ${t(action.labelKey)}`}
             className="flex h-7 w-7 items-center justify-center rounded-[5px] text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            disabled={isGenerating}
+            disabled={runDisabled}
             onClick={onRun}
             title={`${t("ai.runPreset")} · ${t(action.labelKey)}`}
             type="button"
@@ -393,10 +442,11 @@ function AssistantResultPanel({
           </span>
         </div>
       </div>
-      <div
-        className="relative shrink-0 border-b border-border/[0.58] bg-background/30 px-2.5 py-1.5 dark:bg-background/[0.12]"
-        ref={metaDisclosureRef}
-      >
+      {showMeta && (
+        <div
+          className="relative shrink-0 border-b border-border/[0.58] bg-background/30 px-2.5 py-1.5 dark:bg-background/[0.12]"
+          ref={metaDisclosureRef}
+        >
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
             {visibleSourceSlideLabels.map((sourceSlideLabel) => (
@@ -414,7 +464,7 @@ function AssistantResultPanel({
             )}
           </div>
           <button
-            aria-expanded={metaOpen}
+            aria-expanded={effectiveMetaOpen}
             aria-controls="ai-result-context-detail"
             aria-label={t("ai.contextPrompt")}
             className="flex h-6 min-w-0 shrink-0 items-center gap-1.5 rounded-[5px] border border-border bg-white/[0.28] px-1.5 text-left text-[10px] font-medium text-muted-foreground transition hover:bg-white/[0.48] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-background/[0.10] dark:hover:bg-secondary/[0.26]"
@@ -425,11 +475,11 @@ function AssistantResultPanel({
           >
             <Map className="h-3 w-3 shrink-0 text-primary/[0.78]" />
             <span className="hidden truncate xl:inline">{t("ai.contextPrompt")}</span>
-            <ChevronDown className={cn("h-3 w-3 shrink-0 transition-transform", metaOpen && "rotate-180")} />
+            <ChevronDown className={cn("h-3 w-3 shrink-0 transition-transform", effectiveMetaOpen && "rotate-180")} />
           </button>
         </div>
         <AnimatePresence initial={false}>
-          {metaOpen && (
+          {effectiveMetaOpen && (
             <motion.div
               animate={{ height: "auto", opacity: 1 }}
               className="mt-1.5 overflow-hidden rounded-md border border-border/[0.7] bg-background/82 text-[11px] leading-5 text-muted-foreground shadow-[0_10px_28px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:bg-secondary/72 dark:shadow-none"
@@ -449,7 +499,8 @@ function AssistantResultPanel({
             </motion.div>
           )}
         </AnimatePresence>
-      </div>
+        </div>
+      )}
       <ResultNotesPanel compact={compact} key={`${action.id}-${result.title}`} result={result} t={t} />
     </div>
   );
@@ -461,6 +512,7 @@ function AssistantResultEmpty({
   isGenerating,
   notice,
   onRun,
+  runDisabled,
   slideLabel,
   t,
 }: {
@@ -469,11 +521,11 @@ function AssistantResultEmpty({
   isGenerating: boolean;
   notice?: string;
   onRun: () => void;
+  runDisabled: boolean;
   slideLabel: string;
   t: (key: TranslationKey) => string;
 }) {
   const ActionIcon = action.icon;
-  const [promptOpen, setPromptOpen] = useState(false);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-md border border-border/[0.72] bg-white/[0.42] p-3 shadow-[0_1px_0_rgba(255,255,255,0.52)_inset] dark:bg-secondary/[0.26] dark:shadow-none">
@@ -491,7 +543,7 @@ function AssistantResultEmpty({
           {t("ai.notGenerated")}
         </span>
       </div>
-      <div className="flex flex-1 flex-col justify-center py-6">
+      <div className="flex flex-1 flex-col justify-center px-1 py-6">
         <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-md border border-border bg-background/[0.58] text-primary dark:bg-background/20">
           <Sparkles className="h-4 w-4" />
         </div>
@@ -500,14 +552,14 @@ function AssistantResultEmpty({
           {t(action.hintKey)}
         </p>
         {notice && (
-          <p className="mx-auto mt-2 max-w-[280px] rounded-md border border-destructive/25 bg-destructive/[0.07] px-2.5 py-1.5 text-center text-xs leading-5 text-destructive">
+          <p className="mx-auto mt-2 max-w-[280px] rounded-md border border-border/[0.72] bg-background/[0.54] px-2.5 py-1.5 text-center text-xs leading-5 text-muted-foreground dark:bg-background/[0.14]">
             {notice}
           </p>
         )}
         <Button
           className="mx-auto mt-4 h-8 px-3"
           data-ai-empty-run="true"
-          disabled={isGenerating}
+          disabled={runDisabled}
           onClick={onRun}
           size="sm"
           type="button"
@@ -517,42 +569,11 @@ function AssistantResultEmpty({
           {isGenerating ? t("ai.generating") : t("ai.runPreset")}
         </Button>
       </div>
-      <div className="overflow-hidden rounded-md border border-border/70 bg-background/[0.48] text-xs text-muted-foreground dark:bg-background/[0.14]">
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-2.5 py-2">
-          <div className="min-w-0">
-            <span className="block text-[10px] font-semibold uppercase text-muted-foreground">{t("ai.context")}</span>
-            <span className="block truncate text-xs font-medium text-foreground">{contextTitle}</span>
-          </div>
-          <button
-            aria-expanded={promptOpen}
-            aria-label={t("ai.contextPrompt")}
-            className="flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-[5px] border border-border bg-white/[0.28] px-2 text-[10px] font-medium text-muted-foreground transition hover:bg-white/[0.48] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-background/[0.10] dark:hover:bg-secondary/[0.26]"
-            data-ai-empty-context-toggle="true"
-            onClick={() => setPromptOpen((current) => !current)}
-            title={t("ai.contextPrompt")}
-            type="button"
-          >
-            <Map className="h-3 w-3 shrink-0 text-primary/[0.78]" />
-            <span className="hidden truncate xl:inline">{t("ai.contextPrompt")}</span>
-            <ChevronDown className={cn("h-3 w-3 shrink-0 transition-transform", promptOpen && "rotate-180")} />
-          </button>
-        </div>
-        <AnimatePresence initial={false}>
-          {promptOpen && (
-            <motion.div
-              animate={{ height: "auto", opacity: 1 }}
-              className="overflow-hidden border-t border-border/[0.56] bg-white/[0.22] px-2.5 py-2 text-[11px] leading-5 dark:bg-background/[0.10]"
-              exit={{ height: 0, opacity: 0 }}
-              initial={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-            >
-              <div className="flex items-start gap-2">
-                <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary/[0.72]" />
-                <p>{t("ai.noModelCallYet")}</p>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+      <div className="flex items-center justify-between gap-2 rounded-md border border-border/70 bg-background/[0.46] px-2.5 py-2 text-xs text-muted-foreground dark:bg-background/[0.14]">
+        <span className="min-w-0 truncate text-[11px] font-medium">{contextTitle}</span>
+        <span className="shrink-0 rounded-[5px] border border-border bg-white/[0.28] px-1.5 py-0.5 text-[10px] font-semibold dark:bg-background/[0.10]">
+          {t("ai.onDemand")}
+        </span>
       </div>
     </div>
   );
@@ -701,6 +722,14 @@ function ConversationHistoryPanel({
             const active = Boolean(item.assistantId && item.assistantId === selectedAssistantMessageId);
             const label = item.promptKey ? t(item.promptKey) : item.label;
             const contextLabel = getContextTitle(item.contextMode, t);
+            const statusLabel =
+              item.status === "error"
+                ? t("common.error")
+                : index === 0
+                  ? t("ai.latest")
+                  : item.status === "success"
+                    ? t("ai.generatedStatus")
+                    : t("ai.pendingStatus");
 
             return (
               <button
@@ -737,11 +766,18 @@ function ConversationHistoryPanel({
                     <span className="truncate">{contextLabel}</span>
                   </span>
                 </span>
-                {index === 0 && (
-                  <span className="rounded-[4px] border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold text-primary">
-                    {t("ai.latest")}
-                  </span>
-                )}
+                <span
+                  className={cn(
+                    "rounded-[4px] border px-1.5 py-0.5 text-[9px] font-semibold",
+                    item.status === "error"
+                      ? "border-destructive/20 bg-destructive/10 text-destructive"
+                      : index === 0
+                        ? "border-primary/20 bg-primary/10 text-primary"
+                        : "border-border bg-background/[0.46] text-muted-foreground dark:bg-background/[0.14]",
+                  )}
+                >
+                  {statusLabel}
+                </span>
               </button>
             );
           })}
@@ -752,11 +788,12 @@ function ConversationHistoryPanel({
 }
 
 type AIInspectorProps = {
+  deckId: string;
   deckSlides: Slide[];
   slide: Slide;
 };
 
-export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
+export function AIInspector({ deckId, deckSlides, slide }: AIInspectorProps) {
   const { language, t } = usePreferences();
   const slideLabel = formatSlideLabel(slide.pageNumber, language);
   const sectionLabel = t(getSlideSectionKey(slide.section));
@@ -769,17 +806,31 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
   const [inspectorStateRestored, setInspectorStateRestored] = useState(false);
   const [messagesBySlideId, setMessagesBySlideId] = useState<Record<string, Message[]>>({});
   const [clearArmedSlideId, setClearArmedSlideId] = useState<string | null>(null);
-  const [generatingRequestId, setGeneratingRequestId] = useState<string | null>(null);
+  const [generatingRequest, setGeneratingRequest] = useState<GeneratingRequest | null>(null);
   const [providerNoticeBySlideId, setProviderNoticeBySlideId] = useState<Record<string, string>>({});
   const generationLockedRef = useRef(false);
+  const visibleSlideIdRef = useRef(slide.id);
 
   const prompt = draftsBySlideId[slide.id] ?? "";
   const messages = messagesBySlideId[slide.id] ?? emptyMessages;
   const providerNotice = providerNoticeBySlideId[slide.id] ?? "";
   const clearArmed = clearArmedSlideId === slide.id;
   const historyOpen = historyOpenSlideId === slide.id;
-  const isGenerating = Boolean(generatingRequestId);
-  const canSubmit = prompt.trim().length > 0 && !isGenerating;
+  const isGenerating = Boolean(generatingRequest);
+  const isGeneratingCurrentSlide = generatingRequest?.slideId === slide.id;
+  const isGeneratingSelectedAction = isGeneratingCurrentSlide && generatingRequest?.action === selectedActionId;
+  const readableContextSlides = useMemo(
+    () => getReadableContextSlides(slide, contextMode, deckSlides),
+    [contextMode, deckSlides, slide],
+  );
+  const hasReadableContext = readableContextSlides.length > 0;
+  const hasCurrentSlideReadableContext = slide.extractedText.trim().length > 0 || slide.speakerNotes.trim().length > 0;
+  const contextUnavailableNotice = hasReadableContext ? "" : t("ai.contextUnavailable");
+  const presetUnavailableNotice = hasCurrentSlideReadableContext ? "" : t("ai.presetContextUnavailable");
+  const effectiveProviderNotice = hasReadableContext ? providerNotice : contextUnavailableNotice;
+  const effectivePresetNotice = presetUnavailableNotice || effectiveProviderNotice;
+  const canSubmit = prompt.trim().length > 0 && !isGenerating && hasReadableContext;
+  const canRunPreset = !isGenerating && hasCurrentSlideReadableContext;
   const turnCount = messages.filter((message) => message.role === "user").length;
   const conversationHistory = useMemo(() => {
     return messages.reduce<ConversationHistoryItem[]>((items, message, index) => {
@@ -797,6 +848,7 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
         contextMode: assistantMessage?.contextMode ?? contextMode,
         label: message.content,
         promptKey: message.promptKey,
+        status: assistantMessage?.error ? "error" : assistantMessage?.content?.trim() ? "success" : "pending",
         userId: message.id,
       });
 
@@ -813,6 +865,7 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
     ? quickActions.find((action) => action.id === latestAssistantAction)
     : undefined;
   const activeAction =
+    latestAssistantMessage?.contextMode === contextMode &&
     latestAssistantMessage?.promptKey === latestAssistantActionDefinition?.promptKey
       ? latestAssistantAction
       : undefined;
@@ -822,14 +875,19 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
       if (message.role === "assistant") {
         const action = message.action ?? getResultMode(message.prompt);
         const actionDefinition = quickActions.find((item) => item.id === action);
-        if (message.content?.trim() && actionDefinition && message.promptKey === actionDefinition.promptKey) {
+        if (
+          message.contextMode === contextMode &&
+          message.content?.trim() &&
+          actionDefinition &&
+          message.promptKey === actionDefinition.promptKey
+        ) {
           actionIds.add(action);
         }
       }
 
       return actionIds;
     }, new Set<QuickActionId>());
-  }, [messages]);
+  }, [contextMode, messages]);
 
   const contextTitle = useMemo(() => getContextTitle(contextMode, t), [contextMode, t]);
 
@@ -838,6 +896,7 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
         (message): message is AssistantMessage =>
           message.role === "assistant" &&
           message.id === selectedAssistantMessageId &&
+          message.contextMode === contextMode &&
           (message.action ?? getResultMode(message.prompt)) === selectedAction.id,
       )
     : undefined;
@@ -846,6 +905,7 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
     .find(
       (message): message is AssistantMessage =>
         message.role === "assistant" &&
+        message.contextMode === contextMode &&
         message.promptKey === selectedAction.promptKey &&
         (message.action ?? getResultMode(message.prompt)) === selectedAction.id,
     );
@@ -870,8 +930,12 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
   const selectedConversationMessageId = selectedAssistantMessage?.id ?? null;
 
   useEffect(() => {
+    visibleSlideIdRef.current = slide.id;
+  }, [slide.id]);
+
+  useEffect(() => {
     const restoreTimerId = window.setTimeout(() => {
-      const restoredState = readAIInspectorState();
+      const restoredState = readAIInspectorState(deckId);
 
       if (restoredState.contextMode) setContextMode(restoredState.contextMode);
       if (restoredState.selectedActionId) setSelectedActionId(restoredState.selectedActionId);
@@ -885,7 +949,7 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
     }, 0);
 
     return () => window.clearTimeout(restoreTimerId);
-  }, []);
+  }, [deckId]);
 
   useEffect(() => {
     if (!inspectorStateRestored) return;
@@ -895,8 +959,8 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
       draftsBySlideId,
       messagesBySlideId,
       selectedActionId,
-    });
-  }, [contextMode, draftsBySlideId, inspectorStateRestored, messagesBySlideId, selectedActionId]);
+    }, deckId);
+  }, [contextMode, deckId, draftsBySlideId, inspectorStateRestored, messagesBySlideId, selectedActionId]);
 
   useEffect(() => {
     if (!clearArmed) return;
@@ -908,6 +972,29 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
   async function submitPrompt(value: string, action?: QuickActionId, promptKey?: TranslationKey) {
     const clean = value.trim();
     if (!clean || isGenerating || generationLockedRef.current) return;
+
+    const resolvedAction = action ?? getResultMode(clean);
+    if (promptKey && !hasCurrentSlideReadableContext) {
+      setSelectedActionId(resolvedAction);
+      setSelectedAssistantMessageId(null);
+      setHistoryOpenSlideId(null);
+      setProviderNoticeBySlideId((current) => ({
+        ...current,
+        [slide.id]: t("ai.presetContextUnavailable"),
+      }));
+      return;
+    }
+
+    if (!hasReadableContext) {
+      setSelectedActionId(resolvedAction);
+      setSelectedAssistantMessageId(null);
+      setHistoryOpenSlideId(null);
+      setProviderNoticeBySlideId((current) => ({
+        ...current,
+        [slide.id]: t("ai.contextUnavailable"),
+      }));
+      return;
+    }
 
     const config = readAIProviderConfig();
     if (!config.apiKey || !config.baseUrl || !config.model) {
@@ -923,7 +1010,6 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
 
     generationLockedRef.current = true;
 
-    const resolvedAction = action ?? getResultMode(clean);
     const displayPrompt = promptKey ? t(promptKey) : clean;
     messageCounter.current += 1;
     const messageId = `${slide.id}-${messageCounter.current}`;
@@ -949,7 +1035,11 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
       delete next[slide.id];
       return next;
     });
-    setGeneratingRequestId(assistantMessageId);
+    setGeneratingRequest({
+      action: resolvedAction,
+      id: assistantMessageId,
+      slideId: slide.id,
+    });
     setMessagesBySlideId((current) => {
       const slideMessages = current[slide.id] ?? [];
       const nextMessagesBySlideId = {
@@ -962,7 +1052,7 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
         draftsBySlideId: nextDraftsBySlideId,
         messagesBySlideId: nextMessagesBySlideId,
         selectedActionId: resolvedAction,
-      });
+      }, deckId);
 
       return nextMessagesBySlideId;
     });
@@ -988,7 +1078,7 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
       const generatedContent = await generateAIResponse({
         config,
         language,
-        maxOutputTokens: promptKey ? 40 : undefined,
+        maxOutputTokens: promptKey ? resolvePresetOutputTokens(resolvedAction, language) : resolveQuestionOutputTokens(clean),
         prompt: modelPrompt,
       });
       const content = promptKey
@@ -1018,10 +1108,12 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
       };
     } finally {
       generationLockedRef.current = false;
-      setGeneratingRequestId((current) => (current === assistantMessageId ? null : current));
+      setGeneratingRequest((current) => (current?.id === assistantMessageId ? null : current));
     }
 
-    setSelectedAssistantMessageId(assistantMessage.id);
+    if (visibleSlideIdRef.current === slide.id) {
+      setSelectedAssistantMessageId(assistantMessage.id);
+    }
     setMessagesBySlideId((current) => {
       const slideMessages = current[slide.id] ?? [];
       const nextMessagesBySlideId = {
@@ -1034,7 +1126,7 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
         draftsBySlideId: nextDraftsBySlideId,
         messagesBySlideId: nextMessagesBySlideId,
         selectedActionId: resolvedAction,
-      });
+      }, deckId);
 
       return nextMessagesBySlideId;
     });
@@ -1079,9 +1171,15 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
   function handleSelectHistoryItem(item: ConversationHistoryItem) {
     if (!item.assistantId) return;
 
+    setContextMode(item.contextMode);
     setSelectedActionId(item.action);
     setSelectedAssistantMessageId(item.assistantId);
     setHistoryOpenSlideId(null);
+  }
+
+  function handleContextModeChange(nextContextMode: ContextMode) {
+    setContextMode(nextContextMode);
+    setSelectedAssistantMessageId(null);
   }
 
   function updatePrompt(value: string) {
@@ -1104,7 +1202,7 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
         draftsBySlideId: nextDraftsBySlideId,
         messagesBySlideId,
         selectedActionId,
-      });
+      }, deckId);
 
       return nextDraftsBySlideId;
     });
@@ -1126,7 +1224,7 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
         draftsBySlideId: nextDrafts,
         messagesBySlideId: nextMessages,
         selectedActionId,
-      });
+      }, deckId);
 
       return nextMessages;
     });
@@ -1147,7 +1245,7 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
   }
 
   return (
-    <aside className="glass-panel flex min-h-[660px] flex-col overflow-hidden rounded-md sm:min-h-[720px] lg:h-full lg:min-h-0">
+    <aside className="glass-panel flex min-h-[560px] flex-col overflow-hidden rounded-md sm:min-h-[620px] lg:h-full lg:min-h-0">
       <div className="border-b border-border/[0.72] p-2">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -1186,7 +1284,7 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
                 contextMode === value ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
               )}
               key={value}
-              onClick={() => setContextMode(value as ContextMode)}
+              onClick={() => handleContextModeChange(value as ContextMode)}
               type="button"
             >
               {label}
@@ -1218,6 +1316,12 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
           selectedActionId={selectedActionId}
           t={t}
         />
+        {isGenerating && !isGeneratingCurrentSlide && (
+          <div className="mt-2 flex items-center gap-1.5 rounded-md border border-border/[0.62] bg-background/[0.46] px-2 py-1.5 text-[11px] leading-4 text-muted-foreground dark:bg-background/[0.14]">
+            <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
+            <span>{t("ai.otherRequestRunning")}</span>
+          </div>
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-2">
@@ -1234,8 +1338,9 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
               <AssistantResultPanel
                 action={selectedAction}
                 compact={Boolean(selectedAssistantMessage?.promptKey)}
-                isGenerating={isGenerating}
+                isGenerating={isGeneratingSelectedAction}
                 onRun={() => handleQuickAction(selectedAction.id)}
+                runDisabled={!canRunPreset}
                 result={selectedResult}
                 t={t}
               />
@@ -1243,9 +1348,10 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
               <AssistantResultEmpty
                 action={selectedAction}
                 contextTitle={contextTitle}
-                isGenerating={isGenerating}
-                notice={providerNotice}
+                isGenerating={isGeneratingSelectedAction}
+                notice={effectivePresetNotice}
                 onRun={() => handleQuickAction(selectedAction.id)}
+                runDisabled={!canRunPreset}
                 slideLabel={slideLabel}
                 t={t}
               />
@@ -1255,18 +1361,19 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
       </div>
 
       <form className="border-t border-border/[0.72] bg-background/[0.14] p-2 dark:bg-background/[0.08]" onSubmit={handleSubmit}>
-        {providerNotice && selectedResult && (
-          <div className="mb-2 rounded-md border border-destructive/25 bg-destructive/[0.07] px-2.5 py-1.5 text-xs leading-5 text-destructive">
-            {providerNotice}
+        {effectiveProviderNotice && selectedResult && (
+          <div className="mb-2 rounded-md border border-border/[0.72] bg-background/[0.50] px-2.5 py-1.5 text-xs leading-5 text-muted-foreground dark:bg-background/[0.14]">
+            {effectiveProviderNotice}
           </div>
         )}
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
           <Textarea
             aria-label={`${t("ai.askPlaceholder")} ${slideLabel}`}
             className="min-h-[54px] max-h-[104px] py-2 text-[13px] leading-5"
+            disabled={!hasReadableContext}
             onChange={(event) => updatePrompt(event.target.value)}
             onKeyDown={handlePromptKeyDown}
-            placeholder={`${t("ai.askPlaceholder")} ${slideLabel}...`}
+            placeholder={hasReadableContext ? `${t("ai.askPlaceholder")} ${slideLabel}...` : t("ai.contextUnavailableShort")}
             rows={2}
             value={prompt}
           />
@@ -1275,7 +1382,7 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
               <Button
                 aria-label={clearArmed ? t("ai.confirmClearConversation") : t("ai.clearConversation")}
                 className={cn("h-[54px] px-2", clearArmed && "px-3")}
-                disabled={isGenerating}
+                disabled={isGeneratingCurrentSlide}
                 onClick={handleClearConversation}
                 size="sm"
                 title={clearArmed ? t("ai.confirmClearConversation") : t("ai.clearConversation")}
@@ -1287,8 +1394,8 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
               </Button>
             )}
             <Button aria-label={t("ai.ask")} className="h-[54px] px-3" disabled={!canSubmit} size="sm" type="submit">
-              {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-              <span className="hidden xl:inline">{isGenerating ? t("ai.generating") : t("ai.ask")}</span>
+              {isGeneratingCurrentSlide ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              <span className="hidden xl:inline">{isGeneratingCurrentSlide ? t("ai.generating") : t("ai.ask")}</span>
             </Button>
           </div>
         </div>
@@ -1296,4 +1403,3 @@ export function AIInspector({ deckSlides, slide }: AIInspectorProps) {
     </aside>
   );
 }
-

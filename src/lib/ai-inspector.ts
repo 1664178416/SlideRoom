@@ -1,4 +1,4 @@
-import { Slide, slides } from "@/lib/mock-data";
+import { deckMeta, Slide, slides } from "@/lib/mock-data";
 import {
   formatMarkdownCodeBlock,
   formatMarkdownInline,
@@ -6,7 +6,6 @@ import {
 } from "@/lib/markdown-export";
 import {
   formatSlideLabel,
-  getGeneratedKickerLabel,
   getGeneratedMetricLabel,
   getGeneratedSlideTitle,
   getGeneratedSlideSummary,
@@ -113,10 +112,39 @@ const maxPersistedSlideRecords = 28;
 const maxPromptExtractedTextLength = 900;
 const maxPromptSpeakerNotesLength = 360;
 const maxPromptOutlineLength = 640;
+const maxImportedPresetExtractedTextLength = 240;
+const maxImportedPresetSpeakerNotesLength = 90;
+const maxImportedPresetOutlineLength = 180;
 const maxAIExportTextLength = 900;
+
+const presetOutputTokenLimits: Record<QuickActionId, Record<Language, number>> = {
+  explain: {
+    en: 14,
+    zh: 12,
+  },
+  review: {
+    en: 16,
+    zh: 14,
+  },
+  script: {
+    en: 16,
+    zh: 14,
+  },
+  summary: {
+    en: 14,
+    zh: 12,
+  },
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getAIInspectorStorageKey(scopeId?: string) {
+  const cleanScopeId = scopeId?.trim();
+  if (!cleanScopeId) return aiInspectorStorageKey;
+
+  return `${aiInspectorStorageKey}:${cleanScopeId}`;
 }
 
 function isContextMode(value: unknown): value is ContextMode {
@@ -141,6 +169,13 @@ function clipPromptContext(value: string, maxLength: number, language: Language)
 
   const suffix = language === "zh" ? `\n[已截断 ${cleanValue.length - maxLength} 字]` : `\n[truncated ${cleanValue.length - maxLength} chars]`;
   return `${cleanValue.slice(0, maxLength).trimEnd()}${suffix}`;
+}
+
+function clipPromptLine(value: string, maxLength: number) {
+  const cleanValue = value.replace(/\s+/g, " ").trim();
+  if (cleanValue.length <= maxLength) return cleanValue;
+
+  return `${cleanValue.slice(0, Math.max(1, maxLength - 3)).trimEnd()}...`;
 }
 
 function clipAIExportText(value: string, language: Language) {
@@ -276,11 +311,13 @@ function getCompactAIInspectorState(state: PersistedAIInspectorState): Persisted
   };
 }
 
-export function readAIInspectorState(): PersistedAIInspectorState {
+export function readAIInspectorState(scopeId?: string): PersistedAIInspectorState {
   if (typeof window === "undefined") return {};
 
   try {
-    const storedState = window.localStorage.getItem(aiInspectorStorageKey);
+    const storageKey = getAIInspectorStorageKey(scopeId);
+    const shouldReadLegacyState = scopeId === deckMeta.id || !scopeId;
+    const storedState = window.localStorage.getItem(storageKey) ?? (shouldReadLegacyState ? window.localStorage.getItem(aiInspectorStorageKey) : null);
     if (!storedState) return {};
 
     const parsedState = JSON.parse(storedState) as unknown;
@@ -297,8 +334,10 @@ export function readAIInspectorState(): PersistedAIInspectorState {
   }
 }
 
-export function writeAIInspectorState(state: PersistedAIInspectorState) {
+export function writeAIInspectorState(state: PersistedAIInspectorState, scopeId?: string) {
   if (typeof window === "undefined") return;
+
+  const storageKey = getAIInspectorStorageKey(scopeId);
 
   const nextState = {
     contextMode: isContextMode(state.contextMode) ? state.contextMode : undefined,
@@ -308,10 +347,10 @@ export function writeAIInspectorState(state: PersistedAIInspectorState) {
   } satisfies PersistedAIInspectorState;
 
   try {
-    window.localStorage.setItem(aiInspectorStorageKey, JSON.stringify(nextState));
+    window.localStorage.setItem(storageKey, JSON.stringify(nextState));
   } catch {
     try {
-      window.localStorage.setItem(aiInspectorStorageKey, JSON.stringify(getCompactAIInspectorState(nextState)));
+      window.localStorage.setItem(storageKey, JSON.stringify(getCompactAIInspectorState(nextState)));
     } catch {
       // Storage can fail in private mode or when quota is exhausted.
     }
@@ -372,6 +411,10 @@ function formatPromptSourceSlides(contextMode: ContextMode, contextSlides: Slide
   if (contextMode !== "deck") return formatSourceSlideLabels(contextSlides, language);
 
   const count = contextSlides.length;
+  if (contextSlides.every((contextSlide) => contextSlide.section === "imported")) {
+    return language === "zh" ? `全稿 ${count} 页原始速览` : `${count}-slide raw outline`;
+  }
+
   return language === "zh" ? `全稿 ${count} 页大纲` : `${count}-slide deck outline`;
 }
 
@@ -381,6 +424,16 @@ function getContextOutline(contextSlides: Slide[], language: Language) {
       (contextSlide) =>
         `${formatSlideLabel(contextSlide.pageNumber, language)} · ${getSlideDisplayTitle(contextSlide, language)}: ${getGeneratedSlideSummary(contextSlide.summary, contextSlide.pageNumber, language)}`,
     )
+    .join("\n");
+}
+
+function getRawContextOutline(contextSlides: Slide[], language: Language) {
+  return contextSlides
+    .map((contextSlide) => {
+      const rawContext = contextSlide.extractedText || contextSlide.speakerNotes || getSlideDisplayTitle(contextSlide, language);
+
+      return `${formatSlideLabel(contextSlide.pageNumber, language)}: ${clipPromptLine(rawContext, 118)}`;
+    })
     .join("\n");
 }
 
@@ -419,25 +472,50 @@ function getContextNote({
   deckSlides: Slide[];
 }) {
   const sourceLabels = formatSourceSlideLabels(contextSlides, language);
+  const isImportedSlide = slide.section === "imported";
 
   if (language === "zh") {
     if (contextMode === "current") {
+      if (isImportedSlide) {
+        return `只使用 ${formatSlideLabel(slide.pageNumber, language)} 的本地提取文字和原始备注。`;
+      }
+
       return `只使用 ${formatSlideLabel(slide.pageNumber, language)} 的本地提取文字、讲者备注和页面摘要。`;
     }
 
     if (contextMode === "nearby") {
+      if (isImportedSlide) {
+        return `额外参考 ${sourceLabels} 的原始文字/备注速览，用于判断前后页关系。`;
+      }
+
       return `额外参考 ${sourceLabels} 的标题和摘要，用于判断承接和前后逻辑。`;
+    }
+
+    if (isImportedSlide) {
+      return `参考全稿 ${deckSlides.length} 页的原始文字/备注速览，当前页细节仍以 ${formatSlideLabel(slide.pageNumber, language)} 为主。`;
     }
 
     return `参考全稿 ${deckSlides.length} 页的标题/摘要大纲，当前页细节仍以 ${formatSlideLabel(slide.pageNumber, language)} 为主。`;
   }
 
   if (contextMode === "current") {
+    if (isImportedSlide) {
+      return `Uses only ${formatSlideLabel(slide.pageNumber, language)}: locally extracted text and raw speaker notes.`;
+    }
+
     return `Uses only ${formatSlideLabel(slide.pageNumber, language)}: locally extracted text, speaker notes, and page summary.`;
   }
 
   if (contextMode === "nearby") {
+    if (isImportedSlide) {
+      return `Also references raw text/notes skim from ${sourceLabels} to judge nearby slide relationships.`;
+    }
+
     return `Also references titles and summaries from ${sourceLabels} to judge handoff and local logic.`;
+  }
+
+  if (isImportedSlide) {
+    return `References raw text/notes skim from the ${deckSlides.length}-slide deck; details still come from ${formatSlideLabel(slide.pageNumber, language)}.`;
   }
 
   return `References the ${deckSlides.length}-slide title/summary outline; details still come from ${formatSlideLabel(slide.pageNumber, language)}.`;
@@ -454,20 +532,20 @@ function getAssistantResultTitle({
 }) {
   if (language === "zh") {
     const titles: Record<QuickActionId, string> = {
-      explain: `${slideLabel} · 逐页解释`,
+      explain: `${slideLabel} · 旁注`,
       summary: `${slideLabel} · 摘要`,
-      script: `${slideLabel} · 讲稿草稿`,
-      review: `${slideLabel} · 风险与追问`,
+      script: `${slideLabel} · 提示`,
+      review: `${slideLabel} · 审阅`,
     };
 
     return titles[action];
   }
 
   const titles: Record<QuickActionId, string> = {
-    explain: `${slideLabel} · Explanation`,
-    summary: `${slideLabel} · Summary`,
-    script: `${slideLabel} · Speaker draft`,
-    review: `${slideLabel} · Risks & questions`,
+    explain: `${slideLabel} · Note`,
+    summary: `${slideLabel} · Brief`,
+    script: `${slideLabel} · Cue`,
+    review: `${slideLabel} · Check`,
   };
 
   return titles[action];
@@ -716,52 +794,32 @@ const compactPresetSlots: Record<QuickActionId, Record<Language, CompactPresetSl
   explain: {
     en: [
       {
-        aliases: ["takeaway", "conclusion", "core", "summary", "结论", "核心结论"],
-        label: "Takeaway",
-        maxChars: 42,
-      },
-      {
-        aliases: ["evidence", "proof", "basis", "support", "依据", "证据", "支撑"],
-        label: "Evidence",
-        maxChars: 42,
+        aliases: ["note", "explain", "takeaway", "conclusion", "core", "summary", "解释", "结论", "核心结论"],
+        label: "Note",
+        maxChars: 18,
       },
     ],
     zh: [
       {
-        aliases: ["结论", "核心结论", "takeaway", "conclusion", "core", "summary"],
-        label: "结论",
-        maxChars: 12,
-      },
-      {
-        aliases: ["依据", "证据", "支撑", "evidence", "proof", "basis", "support"],
-        label: "依据",
-        maxChars: 12,
+        aliases: ["旁注", "解释", "结论", "核心结论", "takeaway", "conclusion", "core", "summary"],
+        label: "旁注",
+        maxChars: 7,
       },
     ],
   },
   review: {
     en: [
       {
-        aliases: ["risk", "watch", "issue", "risks", "风险", "注意"],
-        label: "Risk",
-        maxChars: 42,
-      },
-      {
-        aliases: ["question", "follow-up", "follow up", "追问", "问题"],
-        label: "Question",
-        maxChars: 42,
+        aliases: ["review", "check", "risk", "question", "审阅", "风险", "追问"],
+        label: "Check",
+        maxChars: 22,
       },
     ],
     zh: [
       {
-        aliases: ["风险", "注意", "risk", "watch", "issue", "risks"],
-        label: "风险",
-        maxChars: 12,
-      },
-      {
-        aliases: ["追问", "问题", "question", "follow-up", "follow up"],
-        label: "追问",
-        maxChars: 12,
+        aliases: ["审阅", "检查", "风险", "追问", "问题", "review", "check", "risk", "question"],
+        label: "审阅",
+        maxChars: 9,
       },
     ],
   },
@@ -769,15 +827,15 @@ const compactPresetSlots: Record<QuickActionId, Record<Language, CompactPresetSl
     en: [
       {
         aliases: ["script", "talk track", "speaker note", "讲稿"],
-        label: "Script",
-        maxChars: 72,
+        label: "Cue",
+        maxChars: 22,
       },
     ],
     zh: [
       {
-        aliases: ["讲稿", "script", "talk track", "speaker note"],
-        label: "讲稿",
-        maxChars: 24,
+        aliases: ["提示", "讲稿", "script", "cue", "talk track", "speaker note"],
+        label: "提示",
+        maxChars: 9,
       },
     ],
   },
@@ -785,15 +843,15 @@ const compactPresetSlots: Record<QuickActionId, Record<Language, CompactPresetSl
     en: [
       {
         aliases: ["summary", "takeaway", "conclusion", "摘要", "结论"],
-        label: "Summary",
-        maxChars: 42,
+        label: "Brief",
+        maxChars: 18,
       },
     ],
     zh: [
       {
         aliases: ["摘要", "结论", "summary", "takeaway", "conclusion"],
         label: "摘要",
-        maxChars: 14,
+        maxChars: 7,
       },
     ],
   },
@@ -815,7 +873,10 @@ function cleanCompactBody(value: string) {
     .replace(/^\s{0,3}#{1,6}\s*/, "")
     .replace(/^\s*(?:[-*]|\d+[.)])\s*/, "")
     .replace(/[*_`]+/g, "")
-    .replace(/^(?:我的判断是|核心判断是|这页主要是|这一页主要是|该页主要是|可以理解为|总体来看|简单说|In short,?|Overall,?)\s*/i, "")
+    .replace(
+      /^(?:我的判断是|核心判断是|这页(?:的)?(?:主要)?(?:是在|是|讲|说明|表达|强调|呈现)?|这一页(?:主要)?(?:是在|是|讲|说明|表达|强调|呈现)?|本页(?:主要)?(?:是在|是|讲|说明|表达|强调|呈现)?|该页(?:主要)?(?:是在|是|讲|说明|表达|强调|呈现)?|这张幻灯片(?:主要)?(?:是在|是|讲|说明|表达|强调|呈现)?|该幻灯片(?:主要)?(?:是在|是|讲|说明|表达|强调|呈现)?|根据(?:页面|幻灯片|PPT|内容|材料)?(?:来看)?|从(?:页面|数据|内容|材料)(?:来看)?|可以理解为|总体来看|简单说|In short,?|Overall,?|This slide(?: mainly)?(?: shows| suggests| highlights| says| is about)?|The slide(?: mainly)?(?: shows| suggests| highlights| says| is about)?|It(?: shows| suggests| highlights| says)?)\s*/i,
+      "",
+    )
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -823,6 +884,15 @@ function cleanCompactBody(value: string) {
 function splitCompactFallbackBodies(value: string) {
   const cleanValue = cleanCompactBody(value);
   if (!cleanValue) return [];
+
+  const labeledSegments = getCompactLabeledSegments(cleanValue, Object.values(compactPresetSlots).flatMap((slotsByLanguage) => [
+    ...slotsByLanguage.en,
+    ...slotsByLanguage.zh,
+  ]));
+
+  if (labeledSegments.length > 0) {
+    return labeledSegments.map((segment) => segment.body).filter(Boolean);
+  }
 
   const sentenceParts = cleanValue
     .split(/[。！？.!?；;]\s*/g)
@@ -838,10 +908,18 @@ function splitCompactFallbackBodies(value: string) {
 }
 
 function clipCompactBody(value: string, maxChars: number) {
-  const cleanValue = cleanCompactBody(value);
+  const cleanValue = cleanCompactBody(value)
+    .split(/[。！？!?；;\r\n]+/)[0]
+    .replace(/^["“”'‘’]+|["“”'‘’]+$/g, "")
+    .replace(/[，,、：:；;。.!！?？\s]+$/g, "")
+    .trim();
   if (cleanValue.length <= maxChars) return cleanValue;
 
-  return `${cleanValue.slice(0, Math.max(1, maxChars - 3)).trimEnd()}...`;
+  const clippedValue = cleanValue.slice(0, Math.max(1, maxChars)).trimEnd().replace(/[，,、：:；;。.!！?？\s]+$/g, "");
+  if (/[\u2E80-\u9FFF]/.test(cleanValue)) return clippedValue;
+
+  const clippedAtWord = clippedValue.replace(/\s+\S*$/, "").trim();
+  return clippedAtWord || clippedValue;
 }
 
 function getCompactSlotKey(slot: CompactPresetSlot) {
@@ -963,6 +1041,11 @@ export function compactPresetModelContent(content: string, action: QuickActionId
       }
 
       if (line.length > 0 && !resolveModelSectionId(line)) {
+        if (action === "review" && slots.length === 1) {
+          fallbackBodies.push(line);
+          return;
+        }
+
         fallbackBodies.push(...splitCompactFallbackBodies(line));
       }
     });
@@ -994,22 +1077,8 @@ export function compactPresetModelContent(content: string, action: QuickActionId
   return fallbackBody ? `${slots[0].label}${separator}${clipCompactBody(fallbackBody, slots[0].maxChars)}` : content.trim();
 }
 
-function formatCitationLines(contextSlides: Slide[], language: Language) {
-  const maxVisibleCitations = 8;
-  const visibleSlides = contextSlides.slice(0, maxVisibleCitations);
-  const hiddenCount = Math.max(0, contextSlides.length - visibleSlides.length);
-  const citationLines = visibleSlides.map(
-    (contextSlide) =>
-      `${formatSlideLabel(contextSlide.pageNumber, language)} · ${getSlideSectionLabel(contextSlide.section, language)} · ${getSlideDisplayTitle(contextSlide, language)}`,
-  );
-
-  if (hiddenCount > 0) {
-    citationLines.push(
-      language === "zh" ? `另有 ${hiddenCount} 页已纳入大纲。` : `${hiddenCount} more slides included in the outline.`,
-    );
-  }
-
-  return citationLines;
+export function resolvePresetOutputTokens(action: QuickActionId, language: Language) {
+  return presetOutputTokenLimits[action]?.[language] ?? 14;
 }
 
 export function buildPresetPrompt({
@@ -1020,6 +1089,7 @@ export function buildPresetPrompt({
   sectionLabel,
   slide,
   slideLabel,
+  compactContext = true,
 }: {
   action: QuickActionId;
   contextMode: ContextMode;
@@ -1028,8 +1098,10 @@ export function buildPresetPrompt({
   sectionLabel: string;
   slide: Slide;
   slideLabel: string;
+  compactContext?: boolean;
 }) {
   const contextLabel = getContextLabel(contextMode, language);
+  const isImportedSlide = slide.section === "imported";
   const metrics =
     slide.metrics.length > 0
       ? slide.metrics.map((metric) => `${getGeneratedMetricLabel(metric.label, language)}: ${metric.value}`).join("; ")
@@ -1049,39 +1121,72 @@ export function buildPresetPrompt({
     language,
     slide,
   });
-  const contextOutline = getContextOutline(contextSlides, language);
+  const contextOutline = isImportedSlide ? getRawContextOutline(contextSlides, language) : getContextOutline(contextSlides, language);
   const deckSectionOutline = contextMode === "deck" ? getDeckSectionOutline(language, deckSlides) : "";
-  const promptExtractedText = clipPromptContext(slide.extractedText, maxPromptExtractedTextLength, language);
+  const promptExtractedTextLimit = isImportedSlide && compactContext
+    ? maxImportedPresetExtractedTextLength
+    : maxPromptExtractedTextLength;
+  const promptSpeakerNotesLimit = isImportedSlide && compactContext
+    ? maxImportedPresetSpeakerNotesLength
+    : maxPromptSpeakerNotesLength;
+  const promptOutlineLimit = isImportedSlide && compactContext ? maxImportedPresetOutlineLength : maxPromptOutlineLength;
+  const promptExtractedText = clipPromptContext(slide.extractedText, promptExtractedTextLimit, language);
   const promptSpeakerNotes = slide.speakerNotes
-    ? clipPromptContext(slide.speakerNotes, maxPromptSpeakerNotesLength, language)
+    ? clipPromptContext(slide.speakerNotes, promptSpeakerNotesLimit, language)
     : language === "zh"
       ? "暂无"
       : "None";
-  const promptContextOutline = clipPromptContext(contextOutline, maxPromptOutlineLength, language);
+  const promptContextOutline = clipPromptContext(contextOutline, promptOutlineLimit, language);
   const promptDeckSectionOutline = deckSectionOutline
     ? clipPromptContext(deckSectionOutline, maxPromptOutlineLength, language)
     : "";
 
   const zhInstructions: Record<QuickActionId, string> = {
     explain:
-      "只给页边旁注，不写报告。必须只输出 2 行，保留标签：结论：10 字内；依据：10 字内。不要复述标题或原文。",
+      "不要写解释或小报告。只输出一行：旁注：<不超过 7 个中文字符>。像贴在页边的一枚短签；不复述标题或原句，不写原因、标点、列表。信息不足只写：旁注：缺少文本。",
     summary:
-      "把这一页压成扫读旁注。必须只输出 1 行，保留标签：摘要：14 字内。只给判断，不列点。",
+      "不要写摘要段落。只输出一行：摘要：<不超过 7 个中文字符>。只保留结论倾向；不复述页面内容，不写原因、标点、列表。信息不足只写：摘要：缺少文本。",
     script:
-      "写一句极短讲稿，不覆盖全部内容。必须只输出 1 行，保留标签：讲稿：24 字内。口语化，可直接念。",
+      "不要写讲稿。只输出一行：提示：<不超过 9 个中文字符>。像讲者开口前看到的短提示；不写背景、标点、列表。信息不足只写：提示：缺少文本。",
     review:
-      "只做轻量审阅，不写分析。必须只输出 2 行，保留标签：风险：10 字内；追问：10 字内。只抓最重要一处。",
+      "不要写审阅报告。只输出一行：审阅：<不超过 9 个中文字符>。把风险和追问合成一个检查点；不解释、不列点。信息不足只写：审阅：缺少文本。",
   };
   const enInstructions: Record<QuickActionId, string> = {
     explain:
-      "Write a margin note, not a report. Exactly 2 labeled lines: Takeaway: max 5 words; Evidence: max 5 words. Do not restate text.",
+      "Do not write an answer. Output one margin tag only: Note: <up to 2 words>. No punctuation, bullets, explanation, or slide-text restatement. If context is weak, write: Note: Need text.",
     summary:
-      "Compress this slide into one skim note. Exactly 1 labeled line: Summary: max 7 words. Judgment only.",
+      "Do not write a summary paragraph. Output one skim tag only: Brief: <up to 2 words>. Keep only the conclusion direction. No punctuation, bullets, or explanation. If context is weak, write: Brief: Need text.",
     script:
-      "Write one tiny presenter note. Exactly 1 labeled line: Script: max 14 words, ready to read aloud.",
+      "Do not write speaker notes. Output one presenter cue only: Cue: <up to 3 words>. Make it speakable. No punctuation, bullets, or background. If context is weak, write: Cue: Need text.",
     review:
-      "Write a light review, not analysis. Exactly 2 labeled lines: Risk: max 5 words; Question: max 5 words. Pick only the sharpest point.",
+      "Do not write a review. Output one check tag only: Check: <up to 3 words>. Merge risk and question into one check. No punctuation, bullets, or explanation. If context is weak, write: Check: Need text.",
   };
+
+  if (isImportedSlide) {
+    if (language === "zh") {
+      return [
+        zhInstructions[action],
+        "",
+        `上下文：${contextLabel}`,
+        `来源：${promptSourceSlides}`,
+        `当前页：${slideLabel}`,
+        `提取文字：${promptExtractedText || "暂无"}`,
+        `原始备注：${promptSpeakerNotes}`,
+        ...(contextMode === "current" ? [] : ["", "邻近/大纲速览：", promptContextOutline]),
+      ].join("\n");
+    }
+
+    return [
+      enInstructions[action],
+      "",
+      `Context: ${contextLabel}`,
+      `Source: ${promptSourceSlides}`,
+      `Current slide: ${slideLabel}`,
+      `Extracted text: ${promptExtractedText || "None"}`,
+      `Raw speaker notes: ${promptSpeakerNotes}`,
+      ...(contextMode === "current" ? [] : ["", "Nearby/outline skim:", promptContextOutline]),
+    ].join("\n");
+  }
 
   if (language === "zh") {
     return [
@@ -1153,6 +1258,7 @@ export function buildQuestionPrompt({
     sectionLabel,
     slide,
     slideLabel,
+    compactContext: false,
   })
     .split(/\r?\n/)
     .slice(2)
@@ -1162,7 +1268,7 @@ export function buildQuestionPrompt({
 
   if (language === "zh") {
     return [
-      "回答用户问题。只根据下面的页面上下文，不要编造；最多 3 行，每行只保留一个判断。如果上下文不足，直接说明缺什么。",
+      "回答用户问题。只根据下面的页面上下文，不要编造；默认最多 2 行，每行只保留一个判断。除非用户明确要求展开，不要写背景、客套、长解释或 Markdown。上下文不足时，直接说明缺什么。",
       `用户问题：${clippedQuestion}`,
       "",
       "页面上下文：",
@@ -1171,12 +1277,24 @@ export function buildQuestionPrompt({
   }
 
   return [
-    "Answer the user's question using only the slide context below. Do not invent missing facts. Use at most 3 lines, one judgment per line. If context is insufficient, say what is missing.",
+    "Answer the user's question using only the slide context below. Do not invent missing facts. Default to at most 2 lines, one judgment per line. Unless the user explicitly asks for depth, do not write background, pleasantries, long explanations, or Markdown. If context is insufficient, say what is missing.",
     `User question: ${clippedQuestion}`,
     "",
     "Slide context:",
     contextPrompt,
   ].join("\n");
+}
+
+export function resolveQuestionOutputTokens(question: string) {
+  const cleanQuestion = question.trim();
+  const lowerQuestion = cleanQuestion.toLowerCase();
+  const asksForDepth =
+    /详细|展开|完整|逐条|列出|分析|方案|步骤|对比|为什么|生成|写(?:一段|成|出)?|讲稿|备注/.test(cleanQuestion) ||
+    /\b(detail(?:ed)?|expand|full|step-by-step|list|analy[sz]e|analysis|plan|steps|compare|why|generate|write|draft|script|speaker notes?)\b/.test(
+      lowerQuestion,
+    );
+
+  return asksForDepth ? 160 : 64;
 }
 
 export function getAssistantPromptForLanguage({
@@ -1244,7 +1362,7 @@ export function buildAssistantResult(
   action?: QuickActionId,
   deckSlides = slides,
   message?: AssistantMessage,
-): AssistantResult {
+): AssistantResult | null {
   const modelResult = buildModelAssistantResult({
     action,
     content: message?.content,
@@ -1260,203 +1378,7 @@ export function buildAssistantResult(
 
   if (modelResult) return modelResult;
 
-  const slideLabel = formatSlideLabel(slide.pageNumber, language);
-  const contextLabel = getContextLabel(contextMode, language);
-  const slideTitle = getSlideDisplayTitle(slide, language);
-  const contextSlides = getContextSlides(slide, contextMode, deckSlides);
-  const sourceSlideLabels = getContextSlideLabels(contextSlides, language);
-  const contextNote = getContextNote({
-    contextMode,
-    contextSlides,
-    deckSlides,
-    language,
-    slide,
-  });
-  const mode = getResultMode(prompt, action);
-  const primaryMetric = slide.metrics[0] ?? {
-    label: language === "zh" ? "关键指标" : "Key signal",
-    value: language === "zh" ? "待确认" : "to confirm",
-  };
-  const primaryMetricLabel = getGeneratedMetricLabel(primaryMetric.label, language);
-  const kickerLabel = getGeneratedKickerLabel(slide.kicker, language);
-  const slideSummary = getGeneratedSlideSummary(slide.summary, slide.pageNumber, language);
-  const slideVisualSummary = getGeneratedVisualSummary(slide.visualSummary, language);
-  const firstBullet = slide.bullets[0] ?? (language === "zh" ? "核心事项" : "the main point");
-  const zhBullets = slide.bullets.length > 0 ? slide.bullets.join("、") : "核心事项";
-  const enBullets = slide.bullets.length > 0 ? slide.bullets.join(", ") : "the main point";
-  const previousSlide = contextSlides.find((contextSlide) => contextSlide.pageNumber === slide.pageNumber - 1);
-  const nextSlide = contextSlides.find((contextSlide) => contextSlide.pageNumber === slide.pageNumber + 1);
-  const deckFirstSlide = deckSlides[0] ?? slide;
-  const deckLastSlide = deckSlides[deckSlides.length - 1] ?? slide;
-  const previousSlideTitle = previousSlide ? getSlideDisplayTitle(previousSlide, language) : "";
-  const nextSlideTitle = nextSlide ? getSlideDisplayTitle(nextSlide, language) : "";
-  const deckFirstSlideTitle = getSlideDisplayTitle(deckFirstSlide, language);
-  const deckLastSlideTitle = getSlideDisplayTitle(deckLastSlide, language);
-  const speakerNotes =
-    slide.speakerNotes || (language === "zh" ? "暂无讲者备注。" : "No speaker notes were extracted.");
-
-  if (language === "zh") {
-    const contextSummaryLabel = contextMode === "deck" ? "全稿大纲上下文" : `${contextLabel}上下文`;
-    const contextEvidence =
-      contextMode === "current"
-        ? `来源页：${sourceSlideLabels.join("、")}。`
-        : contextMode === "nearby"
-          ? [
-              `来源页：${sourceSlideLabels.join("、")}。`,
-              previousSlide
-                ? `前一页承接：${previousSlideTitle} 提供了「${getGeneratedSlideSummary(previousSlide.summary, previousSlide.pageNumber, language)}」。`
-                : "",
-              nextSlide
-                ? `后一页去向：${nextSlideTitle} 会继续落到「${getGeneratedSlideSummary(nextSlide.summary, nextSlide.pageNumber, language)}」。`
-                : "",
-            ]
-              .filter(Boolean)
-              .join("\n")
-          : [
-              `来源：全稿 ${deckSlides.length} 页标题/摘要大纲。`,
-              `大纲路径：从 ${deckFirstSlideTitle} 开场，到 ${deckLastSlideTitle} 收束。`,
-              `当前页位于「${sectionLabel}」章节，作用是把局部判断接回整体故事线。`,
-            ].join("\n");
-    const contextRisk =
-      contextMode === "current"
-        ? `风险：如果「${firstBullet}」推进速度低于预期，页面结论会变弱。${speakerNotes}`
-        : contextMode === "nearby"
-          ? `风险：如果本页和前后页之间的承接不够清楚，听众会把「${firstBullet}」当成孤立事项。${speakerNotes}`
-          : `风险：如果本页结论无法支撑最后的行动请求，演示文稿会出现“看懂了但不知道要批准什么”的断点。${speakerNotes}`;
-    const citationLines = formatCitationLines(contextSlides, language);
-    const titles: Record<QuickActionId, string> = {
-      explain: `${slideLabel} · 逐页解释`,
-      summary: `${slideLabel} · 摘要`,
-      script: `${slideLabel} · 讲稿草案`,
-      review: `${slideLabel} · 风险与追问`,
-    };
-    const summaries: Record<QuickActionId, string> = {
-      explain: `基于${contextSummaryLabel}，这页的主线是：${slideSummary}`,
-      summary: `这页可以压缩成一个判断：${slideSummary}`,
-      script: `这页适合讲成“从判断到证据”的短段落，先说 ${slideTitle}，再落到 ${primaryMetricLabel}。`,
-      review: `这页最值得审阅的是「${firstBullet}」带来的执行压力，以及它背后的假设是否足够稳定。`,
-    };
-
-    return {
-      title: titles[mode],
-      summary: summaries[mode],
-      prompt,
-      contextNote,
-      sourceSlideLabels,
-      sourceSlideText: formatPromptSourceSlides(contextMode, contextSlides, language),
-      sections: [
-        {
-          id: "takeaway",
-          titleKey: "ai.resultTakeaway",
-          shortTitleKey: "ai.resultTakeawayShort",
-          content:
-            mode === "script"
-              ? `讲稿主线：${slideTitle} 这一页把演示文稿推进到一个具体判断。先点出 ${kickerLabel}，再说明为什么 ${zhBullets} 是当前重点。\n${contextNote}`
-              : `核心结论：${slideSummary} 这页不是孤立信息，更像是 ${sectionLabel} 部分里的一个判断节点。\n${contextNote}`,
-        },
-        {
-          id: "evidence",
-          titleKey: "ai.resultEvidence",
-          shortTitleKey: "ai.resultEvidenceShort",
-          content: `关键指标：${primaryMetricLabel} 为 ${primaryMetric.value}。\n支撑点：${zhBullets}。\n页面线索：${slideVisualSummary}\n${contextEvidence}`,
-        },
-        {
-          id: "review",
-          titleKey: "ai.resultReview",
-          shortTitleKey: "ai.resultReviewShort",
-          content:
-            `${contextRisk}\n` +
-            `追问：1. ${primaryMetric.value} 背后的假设是什么？2. 谁负责推进「${firstBullet}」？3. 如果图表趋势下季度放缓，结论需要怎样调整？`,
-        },
-        {
-          id: "citation",
-          titleKey: "ai.resultCitation",
-          shortTitleKey: "ai.resultCitationShort",
-          content: citationLines.join("\n"),
-        },
-      ],
-    };
-  }
-
-  const contextEvidence =
-    contextMode === "current"
-      ? `Source slide: ${sourceSlideLabels.join(", ")}.`
-      : contextMode === "nearby"
-        ? [
-            `Source slides: ${sourceSlideLabels.join(", ")}.`,
-            previousSlide
-              ? `Before: ${previousSlideTitle} frames "${getGeneratedSlideSummary(previousSlide.summary, previousSlide.pageNumber, language)}."`
-              : "",
-            nextSlide
-              ? `After: ${nextSlideTitle} carries the story toward "${getGeneratedSlideSummary(nextSlide.summary, nextSlide.pageNumber, language)}."`
-              : "",
-          ]
-            .filter(Boolean)
-            .join("\n")
-        : [
-            `Source: ${deckSlides.length}-slide title/summary outline.`,
-            `Outline path: opens with ${deckFirstSlideTitle} and closes with ${deckLastSlideTitle}.`,
-            `This page sits in the ${sectionLabel} section and reconnects the local point to the deck narrative.`,
-          ].join("\n");
-  const contextRisk =
-    contextMode === "current"
-      ? `Risk: If "${firstBullet}" moves slower than expected, the page's conclusion weakens. ${speakerNotes}`
-      : contextMode === "nearby"
-        ? `Risk: If the handoff around this page is not explicit, the audience may treat "${firstBullet}" as an isolated issue. ${speakerNotes}`
-        : `Risk: If this page does not support the final operating ask, the deck may be clear but not decision-ready. ${speakerNotes}`;
-  const citationLines = formatCitationLines(contextSlides, language);
-  const titles: Record<QuickActionId, string> = {
-    explain: `${slideLabel} · Explanation`,
-    summary: `${slideLabel} · Summary`,
-    script: `${slideLabel} · Speaker draft`,
-    review: `${slideLabel} · Risks & questions`,
-  };
-  const summaries: Record<QuickActionId, string> = {
-    explain: `Using the ${contextLabel} context, this page says: ${slideSummary}`,
-    summary: `Decision note: ${slideSummary}`,
-    script: `This should be spoken as a short judgment-to-evidence passage: start with ${slideTitle}, then land ${primaryMetricLabel}.`,
-    review: `The sharp review point is whether "${firstBullet}" is supported strongly enough to survive audience challenge.`,
-  };
-
-  return {
-    title: titles[mode],
-    summary: summaries[mode],
-    prompt,
-    contextNote,
-    sourceSlideLabels,
-    sourceSlideText: formatPromptSourceSlides(contextMode, contextSlides, language),
-    sections: [
-      {
-        id: "takeaway",
-        titleKey: "ai.resultTakeaway",
-        shortTitleKey: "ai.resultTakeawayShort",
-        content:
-          mode === "script"
-            ? `Talk track: ${slideTitle} moves the deck into a specific judgment. Start with ${kickerLabel}, then explain why ${enBullets} are the operating focus.\n${contextNote}`
-            : `Core takeaway: ${slideSummary} This is less a standalone fact and more a decision point inside the ${sectionLabel} section.\n${contextNote}`,
-      },
-      {
-        id: "evidence",
-        titleKey: "ai.resultEvidence",
-        shortTitleKey: "ai.resultEvidenceShort",
-        content: `Key metric: ${primaryMetricLabel} is ${primaryMetric.value}.\nSupport points: ${slide.bullets.join(", ") || "None"}.\nPage cue: ${slideVisualSummary}\n${contextEvidence}`,
-      },
-      {
-        id: "review",
-        titleKey: "ai.resultReview",
-        shortTitleKey: "ai.resultReviewShort",
-        content:
-          `${contextRisk}\n` +
-          `Questions: 1. What assumption sits behind ${primaryMetric.value}? 2. Who owns "${firstBullet}"? 3. How would the conclusion change if the chart trend slows next quarter?`,
-      },
-      {
-        id: "citation",
-        titleKey: "ai.resultCitation",
-        shortTitleKey: "ai.resultCitationShort",
-        content: citationLines.join("\n"),
-      },
-    ],
-  };
+  return null;
 }
 
 function getLatestAssistantMessagesByAction(messages: Message[]) {
@@ -1493,17 +1415,17 @@ function getRecentCustomAssistantMessages(messages: Message[]) {
 }
 
 export function getPersistedAISlideExportLines({
-  deckSlides = slides,
+  deckId,
   language,
   slide,
   t,
 }: {
-  deckSlides?: Slide[];
+  deckId?: string;
   language: Language;
   slide: Slide;
   t: (key: TranslationKey) => string;
 }) {
-  const persistedState = readAIInspectorState();
+  const persistedState = readAIInspectorState(deckId);
   const messages = persistedState.messagesBySlideId?.[slide.id] ?? emptyMessages;
   const assistantMessages = getLatestAssistantMessagesByAction(messages);
   const customAssistantMessages = getRecentCustomAssistantMessages(messages);
@@ -1511,80 +1433,33 @@ export function getPersistedAISlideExportLines({
   if (assistantMessages.length === 0 && customAssistantMessages.length === 0) return [];
 
   const emptyValue = getMarkdownEmptyValue(language);
-  const sectionLabel = getSlideSectionLabel(slide.section, language);
   const formatExportAIContent = (value: string) => formatMarkdownCodeBlock(clipAIExportText(value, language), emptyValue);
+  const formatPresetTitle = (message: AssistantMessage) => {
+    const action = message.action ?? getResultMode(message.prompt);
+    const actionDefinition = quickActionDefinitions.find((item) => item.id === action);
+
+    return formatMarkdownInline(actionDefinition ? t(actionDefinition.labelKey) : message.prompt, emptyValue);
+  };
 
   return [
     `### ${t("ai.generated")}`,
     "",
-    ...assistantMessages.flatMap((message) => {
-      const result = buildAssistantResult(
-        slide,
-        getAssistantPromptForLanguage({
-          deckSlides,
-          language,
-          message,
-          slide,
-        }),
-        message.contextMode,
-        language,
-        sectionLabel,
-        message.action,
-        deckSlides,
-        message,
-      );
-
-      return [
-        `#### ${formatMarkdownInline(result.title, emptyValue)}`,
-        "",
-        formatMarkdownInline(result.summary, emptyValue),
-        "",
-        `- ${t("ai.context")}: ${formatMarkdownInline(result.contextNote, emptyValue)}`,
-        `- ${t("ai.sources")}: ${formatMarkdownInline(result.sourceSlideText, emptyValue)}`,
-        "",
-        ...result.sections.flatMap((section) => [
-          `##### ${t(section.titleKey)}`,
-          ...formatExportAIContent(section.content),
-          "",
-        ]),
-      ];
-    }),
+    ...assistantMessages.flatMap((message) => [
+      `#### ${formatPresetTitle(message)}`,
+      "",
+      ...formatExportAIContent(message.content ?? ""),
+      "",
+    ]),
     ...(customAssistantMessages.length > 0
       ? [
           `#### ${t("ai.customQuestions")}`,
           "",
-          ...customAssistantMessages.flatMap((message) => {
-            const result = buildAssistantResult(
-              slide,
-              getAssistantPromptForLanguage({
-                deckSlides,
-                language,
-                message,
-                slide,
-              }),
-              message.contextMode,
-              language,
-              sectionLabel,
-              message.action,
-              deckSlides,
-              message,
-            );
-
-            return [
-              `##### ${formatMarkdownInline(message.prompt, emptyValue)}`,
-              "",
-              formatMarkdownInline(result.summary, emptyValue),
-              "",
-              `- ${t("ai.context")}: ${formatMarkdownInline(result.contextNote, emptyValue)}`,
-              `- ${t("ai.sources")}: ${formatMarkdownInline(result.sourceSlideText, emptyValue)}`,
-              "",
-              ...result.sections.flatMap((section) => [
-                `###### ${t(section.titleKey)}`,
-                ...formatExportAIContent(section.content),
-                "",
-              ]),
-            ];
-          }),
+          ...customAssistantMessages.flatMap((message) => [
+            `##### ${formatMarkdownInline(message.prompt, emptyValue)}`,
+            "",
+            ...formatExportAIContent(message.content ?? ""),
+            "",
+          ]),
         ]
       : []),
   ];

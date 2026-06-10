@@ -34,7 +34,7 @@ import {
   writeAIProviderConfig,
   type AIProviderConfig,
 } from "@/lib/ai-provider-config";
-import { generateAIResponse } from "@/lib/ai-provider-client";
+import { generateAI } from "@/lib/ai-provider-client";
 import { contextQualityLabelKeys, getContextQualityTone } from "@/lib/context-quality";
 import { usePreferences } from "@/lib/preferences";
 import type { DeckContextQuality, SlideContextStats } from "@/lib/upload-contract";
@@ -197,17 +197,23 @@ export function TopBar({
     try {
       const savedConfig = writeAIProviderConfig(aiProviderConfig);
       setAIProviderConfig(savedConfig);
-      await generateAIResponse({
+      const testResult = await generateAI({
         config: savedConfig,
         language,
-        maxOutputTokens: 32,
+        maxOutputTokens: 24,
         prompt:
           language === "zh"
-            ? "这是一次连接测试。只回复：连接正常"
-            : "This is a connection test. Reply only: Connected",
+            ? "连接测试。只回复：连接正常"
+            : "Connection test. Reply only: Connected",
       });
+      const providerLabel =
+        testResult.providerMode === "responses"
+          ? "Responses API"
+          : testResult.providerMode === "chat_completions"
+            ? "Chat Completions"
+            : "OpenAI-compatible";
       setAITestStatus("success");
-      setAITestMessage(t("settings.testPassed"));
+      setAITestMessage(`${t("settings.testPassed")} · ${providerLabel}`);
     } catch (error) {
       setAITestStatus("error");
       setAITestMessage(
@@ -469,6 +475,39 @@ export function TopBar({
                           value={aiProviderConfig.model}
                         />
                       </label>
+                    </div>
+
+                    <div>
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-semibold uppercase text-muted-foreground">
+                          {t("settings.interfaceMode")}
+                        </span>
+                        <span className="hidden text-[10px] text-muted-foreground sm:inline">
+                          {t("settings.interfaceModeHint")}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 rounded-md border border-border bg-white/[0.30] p-1 dark:bg-background/[0.10]" role="group" aria-label={t("settings.interfaceMode")}>
+                        {[
+                          ["auto", t("settings.interfaceAuto")],
+                          ["responses", t("settings.interfaceResponses")],
+                          ["chat_completions", t("settings.interfaceChat")],
+                        ].map(([value, label]) => (
+                          <button
+                            aria-pressed={aiProviderConfig.providerMode === value}
+                            className={[
+                              "h-7 rounded-[5px] text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                              aiProviderConfig.providerMode === value
+                                ? "bg-foreground text-background"
+                                : "text-muted-foreground hover:text-foreground",
+                            ].join(" ")}
+                            key={value}
+                            onClick={() => updateAIProviderConfig("providerMode", value as AIProviderConfig["providerMode"])}
+                            type="button"
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
                     <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center sm:justify-between">

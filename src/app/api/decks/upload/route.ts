@@ -121,6 +121,7 @@ export async function POST(request: Request) {
       inspectionStatus: inspection.inspectionStatus,
       originalFileName: uploadedFile.name,
       pageCount,
+      renderAttemptedAt: Date.now(),
       renderStatus: renderedDeck.status,
       slides: Array.from({ length: pageCount }, (_, index) => {
         const pageNumber = index + 1;

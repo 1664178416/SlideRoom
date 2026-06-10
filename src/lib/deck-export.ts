@@ -1,29 +1,23 @@
-import { contextQualityLabelKeys } from "@/lib/context-quality";
 import { getPersistedAISlideExportLines } from "@/lib/ai-inspector";
 import { getDeckFileStem } from "@/lib/deck-display";
 import {
   formatMarkdownCodeBlock,
   formatMarkdownInline,
-  formatMarkdownListItems,
   formatMarkdownQuote,
   getMarkdownEmptyValue,
 } from "@/lib/markdown-export";
 import { deckMeta, type Slide } from "@/lib/mock-data";
-import type { DeckContextQuality, SlideContextStats } from "@/lib/upload-contract";
+import type { SlideContextStats } from "@/lib/upload-contract";
 import {
   formatSlideLabel,
-  getGeneratedMetricLabel,
   getGeneratedSlideTitle,
-  getGeneratedSlideSummary,
-  getGeneratedVisualSummary,
-  getSlideSectionKey,
   type Language,
   type TranslationKey,
 } from "@/lib/preferences";
 
 type BuildDeckMarkdownExportInput = {
-  contextQuality: DeckContextQuality;
   contextStats: SlideContextStats;
+  deckId: string;
   deckFileName: string;
   deckSlides: Slide[];
   deckTitle: string;
@@ -48,13 +42,26 @@ function clipExportText(value: string, maxLength: number, language: Language) {
   return `${cleanValue.slice(0, maxLength).trimEnd()}${suffix}`;
 }
 
+function formatExportTimestamp(language: Language) {
+  const locale = language === "zh" ? "zh-CN" : "en";
+
+  try {
+    return new Intl.DateTimeFormat(locale, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString();
+  }
+}
+
 export function getDeckMarkdownFileName(deckFileName: string, language: Language) {
   return `${getDeckFileStem(deckFileName, deckMeta.id)}-${language}-notes.md`;
 }
 
 export function buildDeckMarkdownExport({
-  contextQuality,
   contextStats,
+  deckId,
   deckFileName,
   deckSlides,
   deckTitle,
@@ -68,25 +75,16 @@ export function buildDeckMarkdownExport({
     `# ${formatMarkdownInline(deckTitle, emptyValue)}`,
     "",
     `- ${t("processing.file")}: ${formatMarkdownInline(deckFileName, emptyValue)}`,
+    `- ${t("export.generatedAt")}: ${formatMarkdownInline(formatExportTimestamp(language), emptyValue)}`,
     `- ${t("common.totalSlides")}: ${pageCount}`,
-    `- ${t("workspace.contextQuality")}: ${t(contextQualityLabelKeys[contextQuality])}`,
     `- ${t("common.textSlides")}: ${contextStats.textSlideCount}/${pageCount}`,
     `- ${t("common.noteSlides")}: ${contextStats.speakerNotesSlideCount}/${pageCount}`,
-    `- ${t("ai.context")}: ${t("ai.wholeDeck")}`,
+    `- ${t("settings.deferredAI")}: ${formatMarkdownInline(t("export.aiOnDemand"), emptyValue)}`,
     "",
     ...deckSlides.flatMap((slide) => {
       const slideTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
-      const slideSummary = getGeneratedSlideSummary(slide.summary, slide.pageNumber, language);
-      const slideVisualSummary = getGeneratedVisualSummary(slide.visualSummary, language);
-      const metricLines =
-        slide.metrics.length > 0
-          ? slide.metrics.map(
-              (metric) =>
-                `  - ${formatMarkdownInline(getGeneratedMetricLabel(metric.label, language), emptyValue)}: ${formatMarkdownInline(metric.value, emptyValue)}`,
-            )
-          : [`  - ${emptyValue}`];
       const aiInsightLines = getPersistedAISlideExportLines({
-        deckSlides,
+        deckId,
         language,
         slide,
         t,
@@ -95,27 +93,15 @@ export function buildDeckMarkdownExport({
       return [
         `## ${formatSlideLabel(slide.pageNumber, language)} · ${formatMarkdownInline(slideTitle, emptyValue)}`,
         "",
-        `- ${t("common.section")}: ${t(getSlideSectionKey(slide.section))}`,
-        `- ${t("common.summary")}: ${formatMarkdownInline(slideSummary, emptyValue)}`,
-        "",
-        `### ${t("common.keyPoints")}`,
-        ...formatMarkdownListItems(slide.bullets, emptyValue),
-        "",
-        `### ${t("common.metrics")}`,
-        ...metricLines,
-        "",
-        `### ${t("common.visualSummary")}`,
-        formatMarkdownInline(slideVisualSummary, emptyValue),
+        `### ${t("common.speakerNotes")}`,
+        ...formatMarkdownQuote(
+          clipExportText(slide.speakerNotes, maxExportSpeakerNotesLength, language),
+          emptyValue,
+        ),
         "",
         `### ${t("common.extractedText")}`,
         ...formatMarkdownCodeBlock(
           clipExportText(slide.extractedText, maxExportExtractedTextLength, language),
-          emptyValue,
-        ),
-        "",
-        `### ${t("common.speakerNotes")}`,
-        ...formatMarkdownQuote(
-          clipExportText(slide.speakerNotes, maxExportSpeakerNotesLength, language),
           emptyValue,
         ),
         "",

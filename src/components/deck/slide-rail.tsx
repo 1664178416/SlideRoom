@@ -27,6 +27,30 @@ type SlideRailProps = {
 
 type RailViewMode = "thumbnails" | "outline";
 
+function getRawImportedOutlinePreview(slide: Slide) {
+  const rawText = slide.extractedText.replace(/\s+/g, " ").trim();
+  const rawNotes = slide.speakerNotes.replace(/\s+/g, " ").trim();
+
+  if (rawText) {
+    return {
+      key: "rail.rawExcerpt" as const,
+      value: rawText,
+    };
+  }
+
+  if (rawNotes) {
+    return {
+      key: "rail.rawNotes" as const,
+      value: rawNotes,
+    };
+  }
+
+  return {
+    key: "rail.noReadableText" as const,
+    value: "",
+  };
+}
+
 export function SlideRail({ currentSlide, onSelect, onQueryChange, query, searchInputRef, slides }: SlideRailProps) {
   const { language, t } = usePreferences();
   const [viewMode, setViewMode] = useState<RailViewMode>("thumbnails");
@@ -259,8 +283,11 @@ export function SlideRail({ currentSlide, onSelect, onQueryChange, query, search
                 <div className="space-y-1">
                   {group.slides.map((slide) => {
                     const active = slide.id === currentSlide.id;
-                    const summary = getGeneratedSlideSummary(slide.summary, slide.pageNumber, language);
                     const displayTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
+                    const importedPreview = slide.section === "imported" ? getRawImportedOutlinePreview(slide) : null;
+                    const summary = importedPreview
+                      ? importedPreview.value || t(importedPreview.key)
+                      : getGeneratedSlideSummary(slide.summary, slide.pageNumber, language);
 
                     return (
                       <motion.button
@@ -291,6 +318,9 @@ export function SlideRail({ currentSlide, onSelect, onQueryChange, query, search
                             {displayTitle}
                           </span>
                           <span className="mt-0.5 line-clamp-2 block text-[11px] leading-4 text-muted-foreground">
+                            {importedPreview?.value && (
+                              <span className="mr-1 font-semibold text-foreground/72">{t(importedPreview.key)}:</span>
+                            )}
                             {summary}
                           </span>
                         </span>

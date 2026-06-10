@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useState } from "react";
-import { FileText, StickyNote } from "lucide-react";
+import { FileText, ImageOff, StickyNote } from "lucide-react";
 import { Slide } from "@/lib/mock-data";
 import {
   formatSlideLabel,
@@ -54,7 +54,10 @@ export function SlideArt({ slide, compact = false, className, priority = false }
             tone: "teal" as const,
           },
         ];
-  const isImportedCompact = compact && slide.section === "imported";
+  const isImportedSlide = slide.section === "imported";
+  const renderedAspectRatio = slide.aspectRatio && slide.aspectRatio > 0 ? slide.aspectRatio : 16 / 10;
+  const renderedImageWidth = compact ? 480 : 1600;
+  const renderedImageHeight = Math.max(1, Math.round(renderedImageWidth / renderedAspectRatio));
   const getRenderedMetricLabel = (label: string) => getGeneratedMetricLabel(label, language);
 
   if (renderedImageUrl) {
@@ -64,84 +67,97 @@ export function SlideArt({ slide, compact = false, className, priority = false }
           "relative aspect-[var(--slide-aspect-ratio,1.6)] overflow-hidden rounded-md border border-stone-200 bg-white shadow-sm",
           className,
         )}
-        style={{ ["--slide-aspect-ratio" as string]: String(slide.aspectRatio ?? 16 / 10) }}
+        style={{ ["--slide-aspect-ratio" as string]: String(renderedAspectRatio) }}
       >
         <Image
           alt={`${formatSlideLabel(slide.pageNumber, language)} · ${renderedTitle}`}
           className="h-full w-full object-contain"
           draggable={false}
-          fill
+          fetchPriority={priority || !compact ? "high" : "auto"}
+          height={renderedImageHeight}
           loading={compact && !priority ? "lazy" : "eager"}
           onError={() => setFailedRenderedImage({ slideId: slide.id, url: renderedImageUrl })}
           preload={!compact}
           sizes={compact ? "238px" : "1024px"}
           src={renderedImageUrl}
+          width={renderedImageWidth}
         />
       </div>
     );
   }
 
-  if (isImportedCompact) {
+  if (isImportedSlide) {
     const textReady = slide.extractedText.trim().length > 0;
     const notesReady = slide.speakerNotes.trim().length > 0;
-    const previewLines = displayBullets.filter(Boolean).slice(0, 2);
+    const statusItems = [
+      { icon: FileText, ready: textReady, label: t("slideArt.text") },
+      { icon: StickyNote, ready: notesReady, label: t("slideArt.notes") },
+    ];
 
     return (
       <div
+        aria-label={`${formatSlideLabel(slide.pageNumber, language)} · ${t("slideArt.previewUnavailable")}`}
         className={cn(
-          "relative aspect-[16/10] overflow-hidden rounded-md border border-stone-200 bg-[#fbfaf6] p-2.5 text-stone-950 shadow-sm",
+          "relative aspect-[16/10] overflow-hidden rounded-md border border-dashed border-stone-300 bg-[#fbfaf6] text-stone-950 shadow-sm",
+          compact ? "p-2.5" : "p-5 sm:p-6",
           className,
         )}
         style={{ ["--slide-accent" as string]: `hsl(${slide.accent})` }}
       >
-        <div className="absolute inset-x-0 top-0 h-1 bg-[var(--slide-accent)]" />
-        <div className="flex h-full min-w-0 flex-col justify-between gap-1.5">
-          <div className="min-w-0">
-            <div className="mb-1.5 flex items-center justify-between gap-2 text-[6px] font-semibold uppercase text-stone-500">
-              <span className="truncate">{formatSlideLabel(slide.pageNumber, language)}</span>
-              <span className="rounded-[3px] border border-stone-200 bg-white/70 px-1 py-0.5 text-[5px] text-stone-500">
-                PPT
-              </span>
-            </div>
-            <h2 className="line-clamp-2 text-[12px] font-semibold leading-[1.08] tracking-normal text-stone-950">
-              {renderedTitle}
-            </h2>
-          </div>
-
-          <div className="space-y-1">
-            {previewLines.length > 0 ? (
-              previewLines.map((line, index) => (
-                <div
-                  className="grid min-w-0 grid-cols-[6px_minmax(0,1fr)] items-start gap-1 text-[6px] font-medium leading-[1.25] text-stone-600"
-                  key={`${line}-${index}`}
-                >
-                  <span className="mt-1 h-1 w-1 rounded-full bg-[var(--slide-accent)] opacity-75" />
-                  <span className="line-clamp-2">{line}</span>
-                </div>
-              ))
-            ) : (
-              <div className="h-5 rounded-[3px] border border-dashed border-stone-300 bg-white/45" />
+        <div className="absolute inset-x-0 top-0 h-1 bg-[var(--slide-accent)] opacity-70" />
+        <div className={cn("flex h-full min-w-0 flex-col", compact ? "justify-between gap-2" : "justify-center gap-4")}>
+          <div
+            className={cn(
+              "flex min-w-0 items-center justify-between gap-2 font-semibold text-stone-500",
+              compact ? "text-[6px]" : "text-[11px]",
             )}
+          >
+            <span className="truncate">{formatSlideLabel(slide.pageNumber, language)}</span>
+            <span
+              className={cn(
+                "shrink-0 rounded border border-stone-200 bg-white/70 text-stone-500",
+                compact ? "px-1 py-0.5 text-[5px]" : "px-2 py-1 text-[10px]",
+              )}
+            >
+              {renderedKicker}
+            </span>
           </div>
 
-          <div className="grid grid-cols-2 gap-1">
-            {[
-              { icon: FileText, ready: textReady, label: t("slideArt.text") },
-              { icon: StickyNote, ready: notesReady, label: t("slideArt.notes") },
-            ].map((item, index) => {
+          <div className={cn("flex min-h-0 flex-1 flex-col items-center justify-center text-center", compact ? "gap-1.5" : "gap-3")}>
+            <span
+              className={cn(
+                "flex shrink-0 items-center justify-center rounded-md border border-stone-200 bg-white/72 text-stone-500",
+                compact ? "h-7 w-7" : "h-12 w-12",
+              )}
+            >
+              <ImageOff className={cn(compact ? "h-3.5 w-3.5" : "h-5 w-5")} />
+            </span>
+            <div className="min-w-0">
+              <div className={cn("font-semibold text-stone-900", compact ? "text-[10px]" : "text-base")}>{t("slideArt.previewUnavailable")}</div>
+              {!compact && (
+                <p className="mx-auto mt-1 max-w-[360px] text-sm leading-6 text-stone-600">
+                  {t("slideArt.importedVisualPlaceholder")}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className={cn("grid grid-cols-2", compact ? "gap-1" : "gap-2")}>
+            {statusItems.map((item, index) => {
               const Icon = item.icon;
 
               return (
                 <div
                   className={cn(
-                    "flex min-w-0 items-center gap-1 rounded-[3px] border px-1 py-0.5 text-[5px] font-semibold",
+                    "flex min-w-0 items-center justify-center gap-1 rounded border font-semibold",
+                    compact ? "px-1 py-0.5 text-[5px]" : "px-2 py-1.5 text-xs",
                     item.ready
-                      ? "border-stone-300 bg-white/70 text-stone-700"
+                      ? "border-stone-300 bg-white/72 text-stone-700"
                       : "border-stone-200 bg-white/35 text-stone-400",
                   )}
                   key={`${item.label}-${index}`}
                 >
-                  <Icon className="h-2 w-2 shrink-0" />
+                  <Icon className={cn("shrink-0", compact ? "h-2 w-2" : "h-3.5 w-3.5")} />
                   <span className="truncate">{item.label}</span>
                 </div>
               );
@@ -151,7 +167,6 @@ export function SlideArt({ slide, compact = false, className, priority = false }
       </div>
     );
   }
-
   return (
     <div
       className={cn(

@@ -12,6 +12,7 @@ export const runtime = "nodejs";
 
 const uploadRootDirectory = path.join(process.cwd(), ".slideroom", "uploads");
 const deckIdPattern = /^deck-[a-f0-9]{8}$/i;
+const renderRetryCooldownMs = 5 * 60 * 1000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -43,6 +44,8 @@ function isUploadedDeckSession(value: unknown, deckId: string): value is Uploade
     typeof value.pageCount === "number" &&
     Number.isFinite(value.pageCount) &&
     value.pageCount >= 1 &&
+    (typeof value.renderAttemptedAt === "undefined" ||
+      (typeof value.renderAttemptedAt === "number" && Number.isFinite(value.renderAttemptedAt) && value.renderAttemptedAt >= 0)) &&
     Array.isArray(value.slides) &&
     value.slides.every(isUploadedSlideContext) &&
     typeof value.size === "number" &&
@@ -63,6 +66,13 @@ function hasRenderedSlideImages(session: UploadedDeckSession) {
   return session.slides.some((slide) => typeof slide.imageUrl === "string" && slide.imageUrl.trim().length > 0);
 }
 
+function shouldAttemptRender(session: UploadedDeckSession) {
+  if (hasRenderedSlideImages(session)) return false;
+
+  const lastAttemptedAt = typeof session.renderAttemptedAt === "number" ? session.renderAttemptedAt : 0;
+  return Date.now() - lastAttemptedAt >= renderRetryCooldownMs;
+}
+
 async function findStoredDeckFile(deckDirectory: string, session: UploadedDeckSession) {
   const storageFileName = path.basename(session.storageKey);
   if (storageFileName && storageFileName !== "." && storageFileName !== path.sep) {
@@ -79,7 +89,7 @@ async function hydrateRenderedSlides(
   metadataPath: string,
   session: UploadedDeckSession,
 ) {
-  if (hasRenderedSlideImages(session) || session.renderStatus === "unavailable" || session.renderStatus === "failed") {
+  if (!shouldAttemptRender(session)) {
     return session;
   }
 
@@ -111,6 +121,7 @@ async function hydrateRenderedSlides(
     const nextSession: UploadedDeckSession = {
       ...session,
       pageCount,
+      renderAttemptedAt: Date.now(),
       renderStatus: renderedDeck.status,
       slides,
     };
@@ -123,6 +134,7 @@ async function hydrateRenderedSlides(
   } catch {
     const failedSession = {
       ...session,
+      renderAttemptedAt: Date.now(),
       renderStatus: "failed" as const,
     };
 

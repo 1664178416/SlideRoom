@@ -18,6 +18,7 @@ export type UploadedDeckSession = {
   inspectionStatus: DeckInspectionStatus;
   originalFileName: string;
   pageCount: number;
+  renderAttemptedAt?: number;
   renderStatus?: "rendered" | "unavailable" | "failed";
   slides: UploadedSlideContext[];
   size: number;
