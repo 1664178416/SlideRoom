@@ -47,7 +47,8 @@ export function SlideStage({
   const zoomAtMin = zoom <= minZoom + 0.005;
   const zoomAtMax = zoom >= maxZoom - 0.005;
   const displayTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
-  const speakerNotes = slide.speakerNotes.trim() || t("stage.noSpeakerNotes");
+  const speakerNotes = slide.speakerNotes.trim();
+  const hasSpeakerNotes = speakerNotes.length > 0;
   const showSectionMeta = slide.section !== "imported";
   const slideAspectRatio = slide.aspectRatio && slide.aspectRatio > 0 ? slide.aspectRatio : 16 / 10;
   const fittedSlideSize = useMemo(() => {
@@ -168,15 +169,21 @@ export function SlideStage({
         </div>
       </div>
 
-      <div className="shrink-0 border-t border-border/[0.72] bg-background/20 px-3 py-2.5 dark:bg-background/10">
-        <div className="min-h-[96px] overflow-hidden rounded-md border border-border/[0.72] bg-white/[0.38] shadow-[0_1px_0_rgba(255,255,255,0.58)_inset] dark:bg-secondary/[0.24] dark:shadow-none">
-          <div
-            className="max-h-[156px] min-h-[96px] overflow-y-auto px-3.5 py-3 text-sm leading-6 [scrollbar-gutter:stable]"
-            data-slide-notes-scroll="true"
-          >
-            <p className="whitespace-pre-wrap break-words text-foreground/78">{speakerNotes}</p>
+      <div className="shrink-0 border-t border-border/[0.72] bg-background/20 px-3 py-2 dark:bg-background/10">
+        {hasSpeakerNotes ? (
+          <div className="overflow-hidden rounded-md border border-border/[0.72] bg-white/[0.38] shadow-[0_1px_0_rgba(255,255,255,0.58)_inset] dark:bg-secondary/[0.24] dark:shadow-none">
+            <div
+              className="max-h-[148px] min-h-[76px] overflow-y-auto px-3.5 py-2.5 text-sm leading-6 [scrollbar-gutter:stable]"
+              data-slide-notes-scroll="true"
+            >
+              <p className="whitespace-pre-wrap break-words text-foreground/78">{speakerNotes}</p>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="rounded-md border border-dashed border-border/[0.62] bg-white/[0.20] px-3 py-1.5 text-xs text-muted-foreground dark:bg-secondary/[0.12]">
+            {t("stage.noSpeakerNotes")}
+          </div>
+        )}
       </div>
     </main>
   );

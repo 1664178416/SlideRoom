@@ -22,6 +22,7 @@ import { getSessionDeckTitle, normalizeDeckFileName } from "@/lib/deck-display";
 import { getDeckSlides } from "@/lib/deck-slides";
 import { deckMeta } from "@/lib/mock-data";
 import { processingDurationMs, readProcessingSession, writeProcessingSession, type ProcessingSession } from "@/lib/processing-session";
+import { getActiveProcessingStepIndex, processingSteps } from "@/lib/processing-steps";
 import { upsertRecentDeck } from "@/lib/recent-decks";
 import {
   getDeckContextQuality,
@@ -33,19 +34,9 @@ import {
   formatSlideLabel,
   getGeneratedKickerLabel,
   getGeneratedSlideTitle,
-  type TranslationKey,
   usePreferences,
 } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
-
-const processingSteps: TranslationKey[] = [
-  "processing.upload",
-  "processing.convert",
-  "processing.render",
-  "processing.extract",
-  "processing.index",
-  "processing.ready",
-];
 
 const autoOpenDelayMs = 900;
 const progressUpdateIntervalMs = 180;
@@ -159,9 +150,7 @@ export default function DeckProcessingPage() {
     return `/deck/${deckId}?${searchParams.toString()}`;
   }, [deckId, fileName]);
 
-  const activeStepIndex = useMemo(() => {
-    return Math.min(processingSteps.length - 1, Math.floor((progress / 100) * processingSteps.length));
-  }, [progress]);
+  const activeStepIndex = useMemo(() => getActiveProcessingStepIndex(progress, ready), [progress, ready]);
 
   useEffect(() => {
     let active = true;

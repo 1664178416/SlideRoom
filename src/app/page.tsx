@@ -27,6 +27,7 @@ import { getDeckSlides } from "@/lib/deck-slides";
 import { deckMeta, slides } from "@/lib/mock-data";
 import { getDeckDisplayTitle, normalizeDeckFileName } from "@/lib/deck-display";
 import { clearProcessingSession, isProcessingComplete, processingDurationMs, writeProcessingSession } from "@/lib/processing-session";
+import { getVisibleProcessingSteps } from "@/lib/processing-steps";
 import { clearRecentDecks, readRecentDecks, upsertRecentDeck, type RecentDeck, type RecentDeckStatus } from "@/lib/recent-decks";
 import {
   getDeckContextQuality,
@@ -44,15 +45,6 @@ import { Language, type TranslationKey, usePreferences } from "@/lib/preferences
 import { cn } from "@/lib/utils";
 
 type UploadState = "idle" | "processing" | "ready" | "error";
-
-const processingSteps: TranslationKey[] = [
-  "processing.upload",
-  "processing.convert",
-  "processing.render",
-  "processing.extract",
-  "processing.index",
-  "processing.ready",
-];
 
 const uploadErrorMessageKeys: Record<UploadDeckErrorCode, TranslationKey> = {
   empty_file: "home.uploadErrorEmpty",
@@ -234,10 +226,7 @@ export default function HomePage() {
   const [recentSnapshotTimestamp, setRecentSnapshotTimestamp] = useState(0);
   const [uploadErrorCode, setUploadErrorCode] = useState<UploadDeckErrorCode | null>(null);
 
-  const visibleSteps = useMemo(() => {
-    const count = Math.max(1, Math.ceil((progress / 100) * processingSteps.length));
-    return processingSteps.slice(0, count);
-  }, [progress]);
+  const visibleSteps = useMemo(() => getVisibleProcessingSteps(progress, uploadState === "ready"), [progress, uploadState]);
   const displayedRecentDecks = useMemo(() => {
     return (recentDecks.length > 0 ? recentDecks : [demoRecentDeck]).slice(0, homeRecentDeckLimit);
   }, [recentDecks]);

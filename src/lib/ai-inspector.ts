@@ -112,27 +112,27 @@ const maxPersistedSlideRecords = 28;
 const maxPromptExtractedTextLength = 900;
 const maxPromptSpeakerNotesLength = 360;
 const maxPromptOutlineLength = 640;
-const maxImportedPresetExtractedTextLength = 240;
-const maxImportedPresetSpeakerNotesLength = 90;
-const maxImportedPresetOutlineLength = 180;
+const maxPresetExtractedTextLength = 120;
+const maxPresetSpeakerNotesLength = 56;
+const maxPresetOutlineLength = 88;
 const maxAIExportTextLength = 900;
 
 const presetOutputTokenLimits: Record<QuickActionId, Record<Language, number>> = {
   explain: {
-    en: 14,
-    zh: 12,
+    en: 8,
+    zh: 8,
   },
   review: {
-    en: 16,
-    zh: 14,
+    en: 8,
+    zh: 8,
   },
   script: {
-    en: 16,
-    zh: 14,
+    en: 8,
+    zh: 8,
   },
   summary: {
-    en: 14,
-    zh: 12,
+    en: 8,
+    zh: 8,
   },
 };
 
@@ -750,14 +750,16 @@ function buildModelAssistantResult({
 
   if (!content?.trim()) return null;
 
+  const displayContent = promptKey ? compactPresetModelContent(content, mode, language) : content;
+
   return {
     title,
-    summary: getModelSummary(content, language),
+    summary: getModelSummary(displayContent, language),
     prompt: resultPrompt ?? prompt,
     contextNote,
     sourceSlideLabels,
     sourceSlideText: formatPromptSourceSlides(contextMode, contextSlides, language),
-    sections: promptKey ? parseCompactPresetSections(content, mode, language) : parseModelSections(content),
+    sections: promptKey ? parseCompactPresetSections(displayContent, mode, language) : parseModelSections(displayContent),
   };
 }
 
@@ -796,14 +798,14 @@ const compactPresetSlots: Record<QuickActionId, Record<Language, CompactPresetSl
       {
         aliases: ["note", "explain", "takeaway", "conclusion", "core", "summary", "解释", "结论", "核心结论"],
         label: "Note",
-        maxChars: 18,
+        maxChars: 14,
       },
     ],
     zh: [
       {
         aliases: ["旁注", "解释", "结论", "核心结论", "takeaway", "conclusion", "core", "summary"],
         label: "旁注",
-        maxChars: 7,
+        maxChars: 5,
       },
     ],
   },
@@ -812,14 +814,14 @@ const compactPresetSlots: Record<QuickActionId, Record<Language, CompactPresetSl
       {
         aliases: ["review", "check", "risk", "question", "审阅", "风险", "追问"],
         label: "Check",
-        maxChars: 22,
+        maxChars: 18,
       },
     ],
     zh: [
       {
         aliases: ["审阅", "检查", "风险", "追问", "问题", "review", "check", "risk", "question"],
         label: "审阅",
-        maxChars: 9,
+        maxChars: 6,
       },
     ],
   },
@@ -828,14 +830,14 @@ const compactPresetSlots: Record<QuickActionId, Record<Language, CompactPresetSl
       {
         aliases: ["script", "talk track", "speaker note", "讲稿"],
         label: "Cue",
-        maxChars: 22,
+        maxChars: 18,
       },
     ],
     zh: [
       {
         aliases: ["提示", "讲稿", "script", "cue", "talk track", "speaker note"],
         label: "提示",
-        maxChars: 9,
+        maxChars: 6,
       },
     ],
   },
@@ -844,14 +846,14 @@ const compactPresetSlots: Record<QuickActionId, Record<Language, CompactPresetSl
       {
         aliases: ["summary", "takeaway", "conclusion", "摘要", "结论"],
         label: "Brief",
-        maxChars: 18,
+        maxChars: 14,
       },
     ],
     zh: [
       {
         aliases: ["摘要", "结论", "summary", "takeaway", "conclusion"],
         label: "摘要",
-        maxChars: 7,
+        maxChars: 5,
       },
     ],
   },
@@ -1123,13 +1125,9 @@ export function buildPresetPrompt({
   });
   const contextOutline = isImportedSlide ? getRawContextOutline(contextSlides, language) : getContextOutline(contextSlides, language);
   const deckSectionOutline = contextMode === "deck" ? getDeckSectionOutline(language, deckSlides) : "";
-  const promptExtractedTextLimit = isImportedSlide && compactContext
-    ? maxImportedPresetExtractedTextLength
-    : maxPromptExtractedTextLength;
-  const promptSpeakerNotesLimit = isImportedSlide && compactContext
-    ? maxImportedPresetSpeakerNotesLength
-    : maxPromptSpeakerNotesLength;
-  const promptOutlineLimit = isImportedSlide && compactContext ? maxImportedPresetOutlineLength : maxPromptOutlineLength;
+  const promptExtractedTextLimit = compactContext ? maxPresetExtractedTextLength : maxPromptExtractedTextLength;
+  const promptSpeakerNotesLimit = compactContext ? maxPresetSpeakerNotesLength : maxPromptSpeakerNotesLength;
+  const promptOutlineLimit = compactContext ? maxPresetOutlineLength : maxPromptOutlineLength;
   const promptExtractedText = clipPromptContext(slide.extractedText, promptExtractedTextLimit, language);
   const promptSpeakerNotes = slide.speakerNotes
     ? clipPromptContext(slide.speakerNotes, promptSpeakerNotesLimit, language)
@@ -1143,23 +1141,23 @@ export function buildPresetPrompt({
 
   const zhInstructions: Record<QuickActionId, string> = {
     explain:
-      "不要写解释或小报告。只输出一行：旁注：<不超过 7 个中文字符>。像贴在页边的一枚短签；不复述标题或原句，不写原因、标点、列表。信息不足只写：旁注：缺少文本。",
+      "只输出：旁注：<最多5个中文字符>。它是页边标签，不是句子；不解释，不列点，不复述标题，不写标点。信息不足写：旁注：文本不足。",
     summary:
-      "不要写摘要段落。只输出一行：摘要：<不超过 7 个中文字符>。只保留结论倾向；不复述页面内容，不写原因、标点、列表。信息不足只写：摘要：缺少文本。",
+      "只输出：摘要：<最多5个中文字符>。只保留结论倾向，不写完整句；不解释，不列点，不复述页面内容。信息不足写：摘要：文本不足。",
     script:
-      "不要写讲稿。只输出一行：提示：<不超过 9 个中文字符>。像讲者开口前看到的短提示；不写背景、标点、列表。信息不足只写：提示：缺少文本。",
+      "只输出：提示：<最多6个中文字符>。像讲者开口前的一眼提示，不写讲稿；不写背景，不列点。信息不足写：提示：文本不足。",
     review:
-      "不要写审阅报告。只输出一行：审阅：<不超过 9 个中文字符>。把风险和追问合成一个检查点；不解释、不列点。信息不足只写：审阅：缺少文本。",
+      "只输出：审阅：<最多6个中文字符>。把风险和追问合成一个检查标签；不解释，不列点，不写建议。信息不足写：审阅：文本不足。",
   };
   const enInstructions: Record<QuickActionId, string> = {
     explain:
-      "Do not write an answer. Output one margin tag only: Note: <up to 2 words>. No punctuation, bullets, explanation, or slide-text restatement. If context is weak, write: Note: Need text.",
+      "Return only: Note: <tag>. The tag is max 2 words, not a sentence. No punctuation, bullets, explanation, or slide-text restatement. If context is weak, write: Note: Need text.",
     summary:
-      "Do not write a summary paragraph. Output one skim tag only: Brief: <up to 2 words>. Keep only the conclusion direction. No punctuation, bullets, or explanation. If context is weak, write: Brief: Need text.",
+      "Return only: Brief: <tag>. The tag is max 2 words and keeps only the conclusion direction. No punctuation, bullets, explanation, or restatement. If context is weak, write: Brief: Need text.",
     script:
-      "Do not write speaker notes. Output one presenter cue only: Cue: <up to 3 words>. Make it speakable. No punctuation, bullets, or background. If context is weak, write: Cue: Need text.",
+      "Return only: Cue: <tag>. The tag is max 2 words and works as a presenter cue. No speaker note, background, bullets, or explanation. If context is weak, write: Cue: Need text.",
     review:
-      "Do not write a review. Output one check tag only: Check: <up to 3 words>. Merge risk and question into one check. No punctuation, bullets, or explanation. If context is weak, write: Check: Need text.",
+      "Return only: Check: <tag>. The tag is max 2 words and merges risk plus question into one check. No recommendation, punctuation, bullets, or explanation. If context is weak, write: Check: Need text.",
   };
 
   if (isImportedSlide) {
@@ -1182,6 +1180,36 @@ export function buildPresetPrompt({
       `Context: ${contextLabel}`,
       `Source: ${promptSourceSlides}`,
       `Current slide: ${slideLabel}`,
+      `Extracted text: ${promptExtractedText || "None"}`,
+      `Raw speaker notes: ${promptSpeakerNotes}`,
+      ...(contextMode === "current" ? [] : ["", "Nearby/outline skim:", promptContextOutline]),
+    ].join("\n");
+  }
+
+  if (compactContext) {
+    if (language === "zh") {
+      return [
+        zhInstructions[action],
+        "",
+        `上下文：${contextLabel}`,
+        `来源：${promptSourceSlides}`,
+        `当前页：${slideLabel}`,
+        `标题：${slideTitle}`,
+        `页面摘要：${slideSummary}`,
+        `提取文字：${promptExtractedText || "暂无"}`,
+        `原始备注：${promptSpeakerNotes}`,
+        ...(contextMode === "current" ? [] : ["", "邻近/大纲速览：", promptContextOutline]),
+      ].join("\n");
+    }
+
+    return [
+      enInstructions[action],
+      "",
+      `Context: ${contextLabel}`,
+      `Source: ${promptSourceSlides}`,
+      `Current slide: ${slideLabel}`,
+      `Title: ${slideTitle}`,
+      `Slide summary: ${slideSummary}`,
       `Extracted text: ${promptExtractedText || "None"}`,
       `Raw speaker notes: ${promptSpeakerNotes}`,
       ...(contextMode === "current" ? [] : ["", "Nearby/outline skim:", promptContextOutline]),
@@ -1440,16 +1468,18 @@ export function getPersistedAISlideExportLines({
 
     return formatMarkdownInline(actionDefinition ? t(actionDefinition.labelKey) : message.prompt, emptyValue);
   };
+  const formatPresetLine = (message: AssistantMessage) => {
+    const action = message.action ?? getResultMode(message.prompt);
+    const compactContent = clipAIExportText(compactPresetModelContent(message.content ?? "", action, language), language);
+
+    return `- ${formatPresetTitle(message)}: ${formatMarkdownInline(compactContent, emptyValue)}`;
+  };
 
   return [
     `### ${t("ai.generated")}`,
     "",
-    ...assistantMessages.flatMap((message) => [
-      `#### ${formatPresetTitle(message)}`,
-      "",
-      ...formatExportAIContent(message.content ?? ""),
-      "",
-    ]),
+    ...assistantMessages.map(formatPresetLine),
+    ...(assistantMessages.length > 0 ? [""] : []),
     ...(customAssistantMessages.length > 0
       ? [
           `#### ${t("ai.customQuestions")}`,

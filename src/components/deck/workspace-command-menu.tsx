@@ -226,7 +226,7 @@ function WorkspaceCommandMenuDialog({
       {
         id: "action-export",
         icon: Download,
-        keywords: ["export", "download", "deck notes", "speaker notes", "markdown", "导出", "下载", "整份备注", "备注"],
+        keywords: ["export", "download", "deck context", "reading context", "speaker notes", "markdown", "导出", "下载", "阅读上下文", "整份上下文", "备注"],
         label: t("command.exportDeck"),
         meta: t("common.export"),
         run: () => {

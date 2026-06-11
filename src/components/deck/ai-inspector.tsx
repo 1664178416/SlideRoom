@@ -103,6 +103,7 @@ function ResultNotesPanel({
   const noteLines = [
     ...result.sections.flatMap((section) => section.content.split("\n")),
   ].filter((line) => line.trim().length > 0);
+  const displayedNoteLines = result.error ? getCompactErrorLines(noteLines) : noteLines;
 
   if (compact && !result.error) {
     const compactLines = noteLines.slice(0, 1);
@@ -119,15 +120,22 @@ function ResultNotesPanel({
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-border/[0.62] bg-white/[0.52] shadow-[0_1px_0_rgba(255,255,255,0.56)_inset] dark:bg-secondary/[0.26] dark:shadow-none">
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/[0.48] bg-background/[0.20] px-3 py-1.5 dark:bg-background/[0.08]">
           <span className="flex min-w-0 items-center gap-2 text-xs font-semibold text-foreground">
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] border border-primary/[0.20] bg-primary/[0.08] text-primary">
-              <StickyNote className="h-3.5 w-3.5" />
+            <span
+              className={cn(
+                "flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] border",
+                result.error
+                  ? "border-destructive/20 bg-destructive/10 text-destructive"
+                  : "border-primary/[0.20] bg-primary/[0.08] text-primary",
+              )}
+            >
+              {result.error ? <AlertTriangle className="h-3.5 w-3.5" /> : <StickyNote className="h-3.5 w-3.5" />}
             </span>
-            <span className="truncate">{t("ai.notes")}</span>
+            <span className="truncate">{result.error ? t("common.error") : t("ai.notes")}</span>
           </span>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-2 text-[13px] leading-5 text-muted-foreground [scrollbar-gutter:stable]">
           <div className={cn("space-y-1", result.error && "text-destructive")}>
-            {noteLines.map((line, index) => (
+            {displayedNoteLines.map((line, index) => (
               <ResultContentLine key={`${result.title}-${index}`} line={line} />
             ))}
           </div>
@@ -155,37 +163,50 @@ function getLabeledLineParts(line: string) {
   };
 }
 
+function getCompactErrorLines(lines: string[]) {
+  const primaryLine = lines
+    .map((line) => line.trim())
+    .find((line) => line && !/^(Responses API|Chat Completions)\b/i.test(line));
+
+  if (!primaryLine) return lines.slice(0, 1);
+
+  return [primaryLine.length > 180 ? `${primaryLine.slice(0, 177).trimEnd()}...` : primaryLine];
+}
+
+function formatAIRequestError(error: unknown, requestFailedLabel: string) {
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const cleanMessage = rawMessage.replace(/\s+/g, " ").trim();
+  const normalizedLabel = requestFailedLabel.replace(/[：:.。\s]+$/g, "").trim();
+  const escapedLabel = normalizedLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const repeatedPrefixPattern = new RegExp(`^${escapedLabel}\\s*[：:.。]?\\s*`, "i");
+
+  if (!cleanMessage) return requestFailedLabel;
+  if (normalizedLabel && repeatedPrefixPattern.test(cleanMessage)) {
+    return cleanMessage;
+  }
+
+  return `${requestFailedLabel}: ${cleanMessage}`;
+}
+
 function CompactResultCard({ lines }: { lines: string[] }) {
   const compactLines = lines
     .map((line) => getLabeledLineParts(line))
     .filter((line) => line.body.length > 0);
 
   if (compactLines.length === 0) return null;
+  const primaryLine = compactLines[0];
 
   return (
-    <div className="relative mx-auto w-full max-w-[300px] overflow-hidden rounded-md border border-primary/[0.20] bg-white/[0.72] px-3.5 py-3 shadow-[0_1px_0_rgba(255,255,255,0.72)_inset,0_16px_34px_rgba(15,23,42,0.06)] dark:bg-secondary/[0.34] dark:shadow-none">
-      <span className="pointer-events-none absolute inset-y-3 left-0 w-0.5 rounded-r-full bg-primary/[0.58]" aria-hidden="true" />
-      <div className="space-y-2">
-        {compactLines.map((line, index) => (
-          <CompactResultLine key={`${line.label}-${line.body}-${index}`} {...line} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function CompactResultLine({ body, label }: { body: string; label: string }) {
-  if (!body) return null;
-
-  return (
-    <div>
-      {label && (
-        <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-          <span className="h-1 w-1 rounded-full bg-primary" aria-hidden="true" />
-          {label}
-        </div>
+    <div className="relative mx-auto flex w-full max-w-[310px] flex-col items-center overflow-hidden rounded-md border border-primary/[0.18] bg-white/[0.72] px-4 py-5 text-center shadow-[0_1px_0_rgba(255,255,255,0.72)_inset,0_20px_42px_rgba(15,23,42,0.07)] dark:bg-secondary/[0.34] dark:shadow-none">
+      <span className="pointer-events-none absolute left-1/2 top-0 h-0.5 w-16 -translate-x-1/2 rounded-b-full bg-primary/[0.55]" aria-hidden="true" />
+      {primaryLine.label && (
+        <span className="mb-3 rounded-[5px] border border-primary/[0.18] bg-primary/[0.08] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-primary">
+          {primaryLine.label}
+        </span>
       )}
-      <p className="break-words text-[15px] font-semibold leading-5 text-foreground/92">{body}</p>
+      <p className="max-w-full break-words text-[22px] font-semibold leading-7 text-foreground/94 sm:text-[24px] sm:leading-8">
+        {primaryLine.body}
+      </p>
     </div>
   );
 }
@@ -387,6 +408,55 @@ function AssistantResultPanel({
       setCopyFeedback("idle");
       copiedTimerRef.current = null;
     }, 1400);
+  }
+
+  if (compact && !result.error) {
+    return (
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-border/[0.72] bg-white/[0.46] text-foreground shadow-[0_1px_0_rgba(255,255,255,0.60)_inset,0_12px_30px_rgba(15,23,42,0.045)] dark:bg-secondary/[0.30] dark:shadow-none">
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-primary/[0.20] bg-primary/[0.08] text-primary">
+              <ActionIcon className="h-3.5 w-3.5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-semibold">{t(action.labelKey)}</span>
+              <span className="block truncate text-[11px] text-muted-foreground">{result.sourceSlideText}</span>
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              aria-label={`${t("ai.runPreset")} · ${t(action.labelKey)}`}
+              className="flex h-7 w-7 items-center justify-center rounded-[5px] text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              disabled={runDisabled}
+              onClick={onRun}
+              title={`${t("ai.runPreset")} · ${t(action.labelKey)}`}
+              type="button"
+            >
+              {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            </button>
+            <button
+              aria-label={copyStatusLabel}
+              className={cn(
+                "flex h-7 w-7 items-center justify-center rounded-[5px] text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                copyFeedback === "failed" && "text-destructive hover:text-destructive",
+              )}
+              onClick={copyResult}
+              title={copyStatusLabel}
+              type="button"
+            >
+              {copyFeedback === "copied" ? (
+                <Check className="h-3.5 w-3.5" />
+              ) : copyFeedback === "failed" ? (
+                <AlertTriangle className="h-3.5 w-3.5" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
+            </button>
+          </div>
+        </div>
+        <ResultNotesPanel compact result={result} t={t} />
+      </div>
+    );
   }
 
   return (
@@ -1101,7 +1171,7 @@ export function AIInspector({ deckId, deckSlides, slide }: AIInspectorProps) {
         role: "assistant",
         prompt: displayPrompt,
         ...(!promptKey && modelPrompt !== clean ? { modelPrompt } : {}),
-        error: `${t("ai.requestFailed")}: ${error instanceof Error ? error.message : String(error)}`,
+        error: formatAIRequestError(error, t("ai.requestFailed")),
         contextMode,
         action: resolvedAction,
         promptKey,

@@ -56,7 +56,7 @@ function formatExportTimestamp(language: Language) {
 }
 
 export function getDeckMarkdownFileName(deckFileName: string, language: Language) {
-  return `${getDeckFileStem(deckFileName, deckMeta.id)}-${language}-notes.md`;
+  return `${getDeckFileStem(deckFileName, deckMeta.id)}-${language}-context.md`;
 }
 
 export function buildDeckMarkdownExport({
@@ -83,28 +83,47 @@ export function buildDeckMarkdownExport({
     "",
     ...deckSlides.flatMap((slide) => {
       const slideTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
+      const speakerNotes = slide.speakerNotes.trim();
+      const extractedText = slide.extractedText.trim();
       const aiInsightLines = getPersistedAISlideExportLines({
         deckId,
         language,
         slide,
         t,
       });
+      const rawContextLines = [
+        ...(speakerNotes
+          ? [
+              `### ${t("common.speakerNotes")}`,
+              ...formatMarkdownQuote(
+                clipExportText(speakerNotes, maxExportSpeakerNotesLength, language),
+                emptyValue,
+              ),
+              "",
+            ]
+          : []),
+        ...(extractedText
+          ? [
+              `### ${t("common.extractedText")}`,
+              ...formatMarkdownCodeBlock(
+                clipExportText(extractedText, maxExportExtractedTextLength, language),
+                emptyValue,
+              ),
+              "",
+            ]
+          : []),
+        ...(!speakerNotes && !extractedText
+          ? [
+              ...formatMarkdownQuote(t("rail.noReadableText"), emptyValue),
+              "",
+            ]
+          : []),
+      ];
 
       return [
         `## ${formatSlideLabel(slide.pageNumber, language)} · ${formatMarkdownInline(slideTitle, emptyValue)}`,
         "",
-        `### ${t("common.speakerNotes")}`,
-        ...formatMarkdownQuote(
-          clipExportText(slide.speakerNotes, maxExportSpeakerNotesLength, language),
-          emptyValue,
-        ),
-        "",
-        `### ${t("common.extractedText")}`,
-        ...formatMarkdownCodeBlock(
-          clipExportText(slide.extractedText, maxExportExtractedTextLength, language),
-          emptyValue,
-        ),
-        "",
+        ...rawContextLines,
         ...aiInsightLines,
       ];
     }),

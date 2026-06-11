@@ -372,12 +372,14 @@ export default function DeckWorkspacePage() {
   }, [contextQuality, contextStats, deckFileName, deckId, pageCount, workspaceSessionHydrating]);
 
   useEffect(() => {
-    if (!routeDeckFileName) return;
+    if (!routeDeckFileName || workspaceSessionHydrating) return;
+
+    const resolvedPageCount = processingSession?.pageCount ?? uploadedDeckSession?.pageCount ?? pageCount;
 
     const nextProcessingSession: ProcessingSession = {
       deckId,
       fileName: routeDeckFileName,
-      pageCount,
+      pageCount: resolvedPageCount,
       startedAt: getClientTimestamp() - completedProcessingStartedAtOffsetMs,
     };
 
@@ -388,7 +390,7 @@ export default function DeckWorkspacePage() {
     }, 0);
 
     return () => window.clearTimeout(syncTimerId);
-  }, [deckId, pageCount, routeDeckFileName, router]);
+  }, [deckId, pageCount, processingSession?.pageCount, routeDeckFileName, router, uploadedDeckSession?.pageCount, workspaceSessionHydrating]);
 
   useEffect(() => {
     if (workspaceSessionHydrating) return;
