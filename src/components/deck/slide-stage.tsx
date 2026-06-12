@@ -164,7 +164,7 @@ export function SlideStage({
             key={slide.id}
             style={slideFrameStyle}
           >
-            <SlideArt slide={slide} className="h-full w-full shadow-stage" />
+            <SlideArt slide={slide} className="w-full shadow-stage" priority />
           </div>
         </div>
       </div>

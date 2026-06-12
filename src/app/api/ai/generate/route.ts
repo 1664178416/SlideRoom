@@ -28,7 +28,7 @@ type ProviderAttempt =
 
 const maxPromptLength = 18000;
 const defaultModelOutputTokens = 120;
-const minModelOutputTokens = 8;
+const minModelOutputTokens = 4;
 const maxModelOutputTokens = 240;
 const providerRequestTimeoutMs = 45000;
 
@@ -163,7 +163,7 @@ function getSystemPrompt(language: Language) {
       "你是 SlideRoom 的 PPT 阅读助手。",
       "只根据用户提供的幻灯片上下文回答，不要编造不存在的数据。",
       "默认输出要短，目标是帮用户少读，而不是替 PPT 写文章。",
-      "严格遵守用户要求的行数和字数；预设生成只写 1 行短句，宁可少写。",
+      "严格遵守用户要求的行数和字数；预设生成只写 1 个短词标签，宁可少写。",
       "不要解释你为什么这样判断，不要补充背景，不要复述页面原文。",
       "不要使用项目符号、编号、Markdown 或多段落，除非用户明确要求。",
       "除非用户明确要求展开，否则最多 2 行；每行只保留一个判断。",
@@ -175,7 +175,7 @@ function getSystemPrompt(language: Language) {
     "You are SlideRoom's PPT reading assistant.",
     "Answer only from the slide context provided by the user. Do not invent missing data.",
     "Default to short answers that save reading time instead of rewriting the slide.",
-    "Strictly follow the requested line and length limits. Presets must be one short line; write less.",
+    "Strictly follow the requested line and length limits. Presets must be one tiny tag; write less.",
     "Do not explain your reasoning, add background, or restate slide text.",
     "Do not use bullets, numbering, Markdown, or multiple paragraphs unless the user explicitly asks.",
     "Unless the user asks for depth, keep the answer to 2 lines with one judgment per line.",

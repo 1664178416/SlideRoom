@@ -1,4 +1,4 @@
-import { deckMeta, Slide, slides } from "@/lib/mock-data";
+import { isDemoDeckId, Slide, slides } from "@/lib/mock-data";
 import {
   formatMarkdownCodeBlock,
   formatMarkdownInline,
@@ -112,27 +112,27 @@ const maxPersistedSlideRecords = 28;
 const maxPromptExtractedTextLength = 900;
 const maxPromptSpeakerNotesLength = 360;
 const maxPromptOutlineLength = 640;
-const maxPresetExtractedTextLength = 120;
-const maxPresetSpeakerNotesLength = 56;
-const maxPresetOutlineLength = 88;
+const maxPresetExtractedTextLength = 72;
+const maxPresetSpeakerNotesLength = 32;
+const maxPresetOutlineLength = 48;
 const maxAIExportTextLength = 900;
 
 const presetOutputTokenLimits: Record<QuickActionId, Record<Language, number>> = {
   explain: {
-    en: 8,
-    zh: 8,
+    en: 5,
+    zh: 5,
   },
   review: {
-    en: 8,
-    zh: 8,
+    en: 5,
+    zh: 5,
   },
   script: {
-    en: 8,
-    zh: 8,
+    en: 5,
+    zh: 5,
   },
   summary: {
-    en: 8,
-    zh: 8,
+    en: 5,
+    zh: 5,
   },
 };
 
@@ -316,7 +316,7 @@ export function readAIInspectorState(scopeId?: string): PersistedAIInspectorStat
 
   try {
     const storageKey = getAIInspectorStorageKey(scopeId);
-    const shouldReadLegacyState = scopeId === deckMeta.id || !scopeId;
+    const shouldReadLegacyState = isDemoDeckId(scopeId) || !scopeId;
     const storedState = window.localStorage.getItem(storageKey) ?? (shouldReadLegacyState ? window.localStorage.getItem(aiInspectorStorageKey) : null);
     if (!storedState) return {};
 
@@ -798,14 +798,14 @@ const compactPresetSlots: Record<QuickActionId, Record<Language, CompactPresetSl
       {
         aliases: ["note", "explain", "takeaway", "conclusion", "core", "summary", "解释", "结论", "核心结论"],
         label: "Note",
-        maxChars: 14,
+        maxChars: 10,
       },
     ],
     zh: [
       {
         aliases: ["旁注", "解释", "结论", "核心结论", "takeaway", "conclusion", "core", "summary"],
         label: "旁注",
-        maxChars: 5,
+        maxChars: 4,
       },
     ],
   },
@@ -814,14 +814,14 @@ const compactPresetSlots: Record<QuickActionId, Record<Language, CompactPresetSl
       {
         aliases: ["review", "check", "risk", "question", "审阅", "风险", "追问"],
         label: "Check",
-        maxChars: 18,
+        maxChars: 10,
       },
     ],
     zh: [
       {
         aliases: ["审阅", "检查", "风险", "追问", "问题", "review", "check", "risk", "question"],
         label: "审阅",
-        maxChars: 6,
+        maxChars: 4,
       },
     ],
   },
@@ -830,14 +830,14 @@ const compactPresetSlots: Record<QuickActionId, Record<Language, CompactPresetSl
       {
         aliases: ["script", "talk track", "speaker note", "讲稿"],
         label: "Cue",
-        maxChars: 18,
+        maxChars: 10,
       },
     ],
     zh: [
       {
         aliases: ["提示", "讲稿", "script", "cue", "talk track", "speaker note"],
         label: "提示",
-        maxChars: 6,
+        maxChars: 4,
       },
     ],
   },
@@ -846,14 +846,14 @@ const compactPresetSlots: Record<QuickActionId, Record<Language, CompactPresetSl
       {
         aliases: ["summary", "takeaway", "conclusion", "摘要", "结论"],
         label: "Brief",
-        maxChars: 14,
+        maxChars: 10,
       },
     ],
     zh: [
       {
         aliases: ["摘要", "结论", "summary", "takeaway", "conclusion"],
         label: "摘要",
-        maxChars: 5,
+        maxChars: 4,
       },
     ],
   },
@@ -875,8 +875,9 @@ function cleanCompactBody(value: string) {
     .replace(/^\s{0,3}#{1,6}\s*/, "")
     .replace(/^\s*(?:[-*]|\d+[.)])\s*/, "")
     .replace(/[*_`]+/g, "")
+    .replace(/^(?:note|brief|cue|check|tag|summary|takeaway|review|risk|question|旁注|摘要|提示|审阅|检查|风险|追问)\s*[:：\-–—]\s*/i, "")
     .replace(
-      /^(?:我的判断是|核心判断是|这页(?:的)?(?:主要)?(?:是在|是|讲|说明|表达|强调|呈现)?|这一页(?:主要)?(?:是在|是|讲|说明|表达|强调|呈现)?|本页(?:主要)?(?:是在|是|讲|说明|表达|强调|呈现)?|该页(?:主要)?(?:是在|是|讲|说明|表达|强调|呈现)?|这张幻灯片(?:主要)?(?:是在|是|讲|说明|表达|强调|呈现)?|该幻灯片(?:主要)?(?:是在|是|讲|说明|表达|强调|呈现)?|根据(?:页面|幻灯片|PPT|内容|材料)?(?:来看)?|从(?:页面|数据|内容|材料)(?:来看)?|可以理解为|总体来看|简单说|In short,?|Overall,?|This slide(?: mainly)?(?: shows| suggests| highlights| says| is about)?|The slide(?: mainly)?(?: shows| suggests| highlights| says| is about)?|It(?: shows| suggests| highlights| says)?)\s*/i,
+      /^(?:我的判断是|核心判断是|核心是|结论是|重点是|短签是|标签是|这页(?:的)?(?:主要)?(?:是在|是|讲|说明|表达|强调|呈现)?|这一页(?:主要)?(?:是在|是|讲|说明|表达|强调|呈现)?|本页(?:主要)?(?:是在|是|讲|说明|表达|强调|呈现)?|该页(?:主要)?(?:是在|是|讲|说明|表达|强调|呈现)?|这张幻灯片(?:主要)?(?:是在|是|讲|说明|表达|强调|呈现)?|该幻灯片(?:主要)?(?:是在|是|讲|说明|表达|强调|呈现)?|根据(?:页面|幻灯片|PPT|内容|材料)?(?:来看)?|从(?:页面|数据|内容|材料)(?:来看)?|可以理解为|总体来看|简单说|In short,?|Overall,?|Key idea:?|The key idea is|The tag is|Tag:?|This slide(?: mainly)?(?: shows| suggests| highlights| says| is about)?|The slide(?: mainly)?(?: shows| suggests| highlights| says| is about)?|It(?: shows| suggests| highlights| says)?)\s*/i,
       "",
     )
     .replace(/\s+/g, " ")
@@ -915,10 +916,14 @@ function clipCompactBody(value: string, maxChars: number) {
     .replace(/^["“”'‘’]+|["“”'‘’]+$/g, "")
     .replace(/[，,、：:；;。.!！?？\s]+$/g, "")
     .trim();
-  if (cleanValue.length <= maxChars) return cleanValue;
+  const wordCompactValue = /[\u2E80-\u9FFF]/.test(cleanValue)
+    ? cleanValue
+    : cleanValue.split(/\s+/).filter(Boolean).slice(0, 2).join(" ");
 
-  const clippedValue = cleanValue.slice(0, Math.max(1, maxChars)).trimEnd().replace(/[，,、：:；;。.!！?？\s]+$/g, "");
-  if (/[\u2E80-\u9FFF]/.test(cleanValue)) return clippedValue;
+  if (wordCompactValue.length <= maxChars) return wordCompactValue;
+
+  const clippedValue = wordCompactValue.slice(0, Math.max(1, maxChars)).trimEnd().replace(/[，,、：:；;。.!！?？\s]+$/g, "");
+  if (/[\u2E80-\u9FFF]/.test(wordCompactValue)) return clippedValue;
 
   const clippedAtWord = clippedValue.replace(/\s+\S*$/, "").trim();
   return clippedAtWord || clippedValue;
@@ -1141,23 +1146,23 @@ export function buildPresetPrompt({
 
   const zhInstructions: Record<QuickActionId, string> = {
     explain:
-      "只输出：旁注：<最多5个中文字符>。它是页边标签，不是句子；不解释，不列点，不复述标题，不写标点。信息不足写：旁注：文本不足。",
+      "只输出一个阅读短签，2-4个中文字符。像页边批注标签，不要句子、原因、建议、列表、标点、标题复述或“旁注：”。信息不足只写：文本不足。",
     summary:
-      "只输出：摘要：<最多5个中文字符>。只保留结论倾向，不写完整句；不解释，不列点，不复述页面内容。信息不足写：摘要：文本不足。",
+      "只输出一个扫读短签，2-4个中文字符。只写结论方向，不要句子、解释、列表、标点、页面复述或“摘要：”。信息不足只写：文本不足。",
     script:
-      "只输出：提示：<最多6个中文字符>。像讲者开口前的一眼提示，不写讲稿；不写背景，不列点。信息不足写：提示：文本不足。",
+      "只输出一个讲者提示，2-4个中文字符。只给上台时提醒自己的词，不要讲稿、背景、解释、标点、列表或“提示：”。信息不足只写：文本不足。",
     review:
-      "只输出：审阅：<最多6个中文字符>。把风险和追问合成一个检查标签；不解释，不列点，不写建议。信息不足写：审阅：文本不足。",
+      "只输出一个审阅短签，2-4个中文字符。合并风险和追问，不要问题句、建议、解释、列表、标点或“审阅：”。信息不足只写：文本不足。",
   };
   const enInstructions: Record<QuickActionId, string> = {
     explain:
-      "Return only: Note: <tag>. The tag is max 2 words, not a sentence. No punctuation, bullets, explanation, or slide-text restatement. If context is weak, write: Note: Need text.",
+      "Return one reading tag only, 1-2 words, under 10 characters if possible. No label, punctuation, sentence, bullet, explanation, advice, or slide-title restatement. If context is weak, write only: Need text.",
     summary:
-      "Return only: Brief: <tag>. The tag is max 2 words and keeps only the conclusion direction. No punctuation, bullets, explanation, or restatement. If context is weak, write: Brief: Need text.",
+      "Return one skim tag only, 1-2 words, under 10 characters if possible. Keep only the conclusion direction. No label, punctuation, sentence, bullet, explanation, or restatement. If context is weak, write only: Need text.",
     script:
-      "Return only: Cue: <tag>. The tag is max 2 words and works as a presenter cue. No speaker note, background, bullets, or explanation. If context is weak, write: Cue: Need text.",
+      "Return one presenter cue only, 1-2 words, under 10 characters if possible. No label, speaker note, background, punctuation, bullet, or explanation. If context is weak, write only: Need text.",
     review:
-      "Return only: Check: <tag>. The tag is max 2 words and merges risk plus question into one check. No recommendation, punctuation, bullets, or explanation. If context is weak, write: Check: Need text.",
+      "Return one review tag only, 1-2 words, under 10 characters if possible. Merge risk plus question. No label, question sentence, recommendation, punctuation, bullet, or explanation. If context is weak, write only: Need text.",
   };
 
   if (isImportedSlide) {

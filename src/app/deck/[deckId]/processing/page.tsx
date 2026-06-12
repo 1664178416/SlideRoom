@@ -20,7 +20,7 @@ import { contextQualityLabelKeys, getContextQualityTone } from "@/lib/context-qu
 import { readUploadedDeckSession, writeUploadedDeckSession } from "@/lib/deck-session";
 import { getSessionDeckTitle, normalizeDeckFileName } from "@/lib/deck-display";
 import { getDeckSlides } from "@/lib/deck-slides";
-import { deckMeta } from "@/lib/mock-data";
+import { deckMeta, isDemoDeckId } from "@/lib/mock-data";
 import { processingDurationMs, readProcessingSession, writeProcessingSession, type ProcessingSession } from "@/lib/processing-session";
 import { getActiveProcessingStepIndex, processingSteps } from "@/lib/processing-steps";
 import { upsertRecentDeck } from "@/lib/recent-decks";
@@ -73,7 +73,7 @@ function buildFallbackUploadedSession({
   fileName: string;
   processingSession: ProcessingSession | null;
 }): UploadedDeckSession | null {
-  if (deckId === deckMeta.id) return null;
+  if (isDemoDeckId(deckId)) return null;
 
   return {
     deckId,
@@ -90,7 +90,7 @@ function buildFallbackUploadedSession({
 }
 
 async function fetchUploadedDeckSession(deckId: string) {
-  if (deckId === deckMeta.id) return null;
+  if (isDemoDeckId(deckId)) return null;
 
   const response = await fetch(`/api/decks/${encodeURIComponent(deckId)}`);
   const result = (await response.json()) as ReadDeckResponse;

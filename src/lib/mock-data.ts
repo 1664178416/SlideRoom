@@ -138,3 +138,9 @@ export const deckMeta = {
   fileName: "Q2_strategy_readout.pptx",
   pageCount: slides.length,
 };
+
+const demoDeckRouteIds = new Set([deckMeta.id, "q2-strategy-readout"]);
+
+export function isDemoDeckId(deckId?: string | null) {
+  return Boolean(deckId && demoDeckRouteIds.has(deckId));
+}

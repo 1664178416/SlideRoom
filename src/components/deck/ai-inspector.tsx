@@ -109,7 +109,7 @@ function ResultNotesPanel({
     const compactLines = noteLines.slice(0, 1);
 
     return (
-      <div className="flex min-h-0 flex-1 flex-col justify-center px-3 py-4">
+      <div className="flex min-h-0 flex-1 flex-col justify-center px-3 py-3">
         <CompactResultCard lines={compactLines} />
       </div>
     );
@@ -197,14 +197,14 @@ function CompactResultCard({ lines }: { lines: string[] }) {
   const primaryLine = compactLines[0];
 
   return (
-    <div className="relative mx-auto flex w-full max-w-[310px] flex-col items-center overflow-hidden rounded-md border border-primary/[0.18] bg-white/[0.72] px-4 py-5 text-center shadow-[0_1px_0_rgba(255,255,255,0.72)_inset,0_20px_42px_rgba(15,23,42,0.07)] dark:bg-secondary/[0.34] dark:shadow-none">
-      <span className="pointer-events-none absolute left-1/2 top-0 h-0.5 w-16 -translate-x-1/2 rounded-b-full bg-primary/[0.55]" aria-hidden="true" />
+    <div className="relative mx-auto flex w-fit max-w-full min-w-[172px] items-center justify-center gap-2 overflow-hidden rounded-md border border-primary/[0.18] bg-white/[0.70] px-3.5 py-3 text-center shadow-[0_1px_0_rgba(255,255,255,0.70)_inset,0_16px_34px_rgba(15,23,42,0.06)] dark:bg-secondary/[0.34] dark:shadow-none">
+      <span className="pointer-events-none absolute inset-y-2 left-0 w-0.5 rounded-r-full bg-primary/[0.55]" aria-hidden="true" />
       {primaryLine.label && (
-        <span className="mb-3 rounded-[5px] border border-primary/[0.18] bg-primary/[0.08] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-primary">
+        <span className="shrink-0 rounded-[5px] border border-primary/[0.18] bg-primary/[0.08] px-2 py-0.5 text-[10px] font-semibold text-primary">
           {primaryLine.label}
         </span>
       )}
-      <p className="max-w-full break-words text-[22px] font-semibold leading-7 text-foreground/94 sm:text-[24px] sm:leading-8">
+      <p className="max-w-full break-words text-[18px] font-semibold leading-6 text-foreground/94">
         {primaryLine.body}
       </p>
     </div>

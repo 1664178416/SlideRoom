@@ -1,4 +1,4 @@
-import { deckMeta, slides, type Slide } from "@/lib/mock-data";
+import { deckMeta, isDemoDeckId, slides, type Slide } from "@/lib/mock-data";
 import type { UploadedDeckSession, UploadedSlideContext } from "@/lib/upload-contract";
 
 const importedAccents = [
@@ -189,7 +189,7 @@ function getImportedSlide(pageNumber: number, session: UploadedDeckSession, cont
 }
 
 export function getDeckSlides(session?: UploadedDeckSession | null): Slide[] {
-  if (!session || session.deckId === deckMeta.id) return slides;
+  if (!session || isDemoDeckId(session.deckId)) return slides;
 
   const contextsByPageNumber = getSlideContextByPageNumber(session);
   const pageCount = Math.max(1, session.pageCount || session.slides.length || deckMeta.pageCount);

@@ -12,7 +12,7 @@ import { readUploadedDeckSession, writeUploadedDeckSession } from "@/lib/deck-se
 import { getSessionDeckTitle, normalizeDeckFileName } from "@/lib/deck-display";
 import { buildDeckMarkdownExport, getDeckMarkdownFileName } from "@/lib/deck-export";
 import { getDeckSlides } from "@/lib/deck-slides";
-import { deckMeta, type Slide } from "@/lib/mock-data";
+import { deckMeta, isDemoDeckId, type Slide } from "@/lib/mock-data";
 import { readProcessingSession, writeProcessingSession, type ProcessingSession } from "@/lib/processing-session";
 import { upsertRecentDeck } from "@/lib/recent-decks";
 import {
@@ -150,7 +150,7 @@ function buildFallbackUploadedSession({
   fileName: string;
   processingSession: ProcessingSession | null;
 }): UploadedDeckSession | null {
-  if (deckId === deckMeta.id) return null;
+  if (isDemoDeckId(deckId)) return null;
 
   return {
     deckId,
@@ -167,7 +167,7 @@ function buildFallbackUploadedSession({
 }
 
 async function fetchUploadedDeckSession(deckId: string) {
-  if (deckId === deckMeta.id) return null;
+  if (isDemoDeckId(deckId)) return null;
 
   const response = await fetch(`/api/decks/${encodeURIComponent(deckId)}`);
   const result = (await response.json()) as ReadDeckResponse;
@@ -282,7 +282,7 @@ export default function DeckWorkspacePage() {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [workspaceUploadBusy, setWorkspaceUploadBusy] = useState(false);
   const [workspaceUploadErrorCode, setWorkspaceUploadErrorCode] = useState<UploadDeckErrorCode | null>(null);
-  const [sessionRestoreCheckedDeckId, setSessionRestoreCheckedDeckId] = useState(deckId === deckMeta.id ? deckId : "");
+  const [sessionRestoreCheckedDeckId, setSessionRestoreCheckedDeckId] = useState(isDemoDeckId(deckId) ? deckId : "");
   const [restoredWorkspaceKey, setRestoredWorkspaceKey] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -301,7 +301,7 @@ export default function DeckWorkspacePage() {
   const deckStateKey = useMemo(() => {
     return `${deckId}:${pageCount}:${deckSlides[0]?.id ?? "empty"}:${deckSlides.at(-1)?.id ?? "empty"}`;
   }, [deckId, deckSlides, pageCount]);
-  const workspaceSessionHydrating = deckId !== deckMeta.id && sessionRestoreCheckedDeckId !== deckId;
+  const workspaceSessionHydrating = !isDemoDeckId(deckId) && sessionRestoreCheckedDeckId !== deckId;
   const workspaceRestored = restoredWorkspaceKey === deckStateKey;
 
   const currentSlide = useMemo(() => {
@@ -317,7 +317,7 @@ export default function DeckWorkspacePage() {
     let active = true;
 
     const restoreTimerId = window.setTimeout(() => {
-      if (deckId === deckMeta.id) {
+      if (isDemoDeckId(deckId)) {
         setUploadedDeckSession(null);
         setProcessingSession(null);
         setSessionRestoreCheckedDeckId(deckId);
