@@ -112,27 +112,27 @@ const maxPersistedSlideRecords = 28;
 const maxPromptExtractedTextLength = 900;
 const maxPromptSpeakerNotesLength = 360;
 const maxPromptOutlineLength = 640;
-const maxPresetExtractedTextLength = 72;
-const maxPresetSpeakerNotesLength = 32;
-const maxPresetOutlineLength = 48;
+const maxPresetExtractedTextLength = 56;
+const maxPresetSpeakerNotesLength = 24;
+const maxPresetOutlineLength = 36;
 const maxAIExportTextLength = 900;
 
 const presetOutputTokenLimits: Record<QuickActionId, Record<Language, number>> = {
   explain: {
-    en: 5,
-    zh: 5,
+    en: 4,
+    zh: 4,
   },
   review: {
-    en: 5,
-    zh: 5,
+    en: 4,
+    zh: 4,
   },
   script: {
-    en: 5,
-    zh: 5,
+    en: 4,
+    zh: 4,
   },
   summary: {
-    en: 5,
-    zh: 5,
+    en: 4,
+    zh: 4,
   },
 };
 
@@ -233,9 +233,6 @@ function sanitizeMessages(value: unknown): Record<string, Message[]> {
           id: message.id,
           role: "assistant",
           prompt: promptKey ?? clipPersistedText(message.prompt),
-          ...(!promptKey && typeof message.modelPrompt === "string"
-            ? { modelPrompt: clipPersistedText(message.modelPrompt) }
-            : {}),
           ...(content ? { content } : {}),
           ...(error ? { error } : {}),
           contextMode: isContextMode(message.contextMode) ? message.contextMode : "current",
@@ -291,7 +288,6 @@ function getCompactAIInspectorState(state: PersistedAIInspectorState): Persisted
             ...message,
             content: message.content?.slice(0, 1600),
             error: message.error?.slice(0, 1600),
-            modelPrompt: message.modelPrompt?.slice(0, 2000),
             prompt: message.prompt.slice(0, 1200),
           } satisfies Message;
         }),
@@ -955,16 +951,6 @@ function getPresetCompactSectionId(action: QuickActionId, index: number): Assist
   return "evidence";
 }
 
-function ensureCompactLineLabel(line: string, slot: CompactPresetSlot, language: Language) {
-  const labeledSegments = getCompactLabeledSegments(line, [slot]);
-  const separator = language === "zh" ? "：" : ": ";
-  if (labeledSegments.length > 0) {
-    return `${slot.label}${separator}${clipCompactBody(labeledSegments[0].body, slot.maxChars)}`;
-  }
-
-  return `${slot.label}${separator}${clipCompactBody(line, slot.maxChars)}`;
-}
-
 function parseCompactPresetSections(
   content: string,
   action: QuickActionId,
@@ -987,7 +973,7 @@ function parseCompactPresetSections(
     return {
       id,
       ...getModelSectionMeta(id),
-      content: ensureCompactLineLabel(line, slots[index] ?? slots[0], language),
+      content: clipCompactBody(line, (slots[index] ?? slots[0]).maxChars),
     } satisfies AssistantResultSection;
   });
 }
@@ -1063,25 +1049,23 @@ export function compactPresetModelContent(content: string, action: QuickActionId
       const body = bodiesBySlot.get(slotKey) ?? fallbackBodies.shift();
       if (!body) return "";
 
-      const separator = language === "zh" ? "：" : ": ";
-      return `${slot.label}${separator}${clipCompactBody(body, slot.maxChars)}`;
+      return clipCompactBody(body, slot.maxChars);
     })
     .filter(Boolean);
 
   if (compactLines.length > 0) return compactLines.join("\n");
 
-  const separator = language === "zh" ? "：" : ": ";
   const fallbackLines = splitCompactFallbackBodies(content)
     .slice(0, slots.length)
     .map((body, index) => {
       const slot = slots[index] ?? slots[0];
-      return `${slot.label}${separator}${clipCompactBody(body, slot.maxChars)}`;
+      return clipCompactBody(body, slot.maxChars);
     });
 
   if (fallbackLines.length > 0) return fallbackLines.join("\n");
 
   const fallbackBody = cleanCompactBody(content);
-  return fallbackBody ? `${slots[0].label}${separator}${clipCompactBody(fallbackBody, slots[0].maxChars)}` : content.trim();
+  return fallbackBody ? clipCompactBody(fallbackBody, slots[0].maxChars) : content.trim();
 }
 
 export function resolvePresetOutputTokens(action: QuickActionId, language: Language) {
@@ -1146,23 +1130,23 @@ export function buildPresetPrompt({
 
   const zhInstructions: Record<QuickActionId, string> = {
     explain:
-      "只输出一个阅读短签，2-4个中文字符。像页边批注标签，不要句子、原因、建议、列表、标点、标题复述或“旁注：”。信息不足只写：文本不足。",
+      "只输出一个阅读短签，2-4个中文字符。不要句子、原因、建议、列表、标点、标题复述或“旁注：”。信息不足只写：缺文本。",
     summary:
-      "只输出一个扫读短签，2-4个中文字符。只写结论方向，不要句子、解释、列表、标点、页面复述或“摘要：”。信息不足只写：文本不足。",
+      "只输出一个扫读短签，2-4个中文字符。只写结论方向，不要句子、解释、列表、标点、页面复述或“摘要：”。信息不足只写：缺文本。",
     script:
-      "只输出一个讲者提示，2-4个中文字符。只给上台时提醒自己的词，不要讲稿、背景、解释、标点、列表或“提示：”。信息不足只写：文本不足。",
+      "只输出一个讲者提示，2-4个中文字符。只给上台时提醒自己的词，不要讲稿、背景、解释、标点、列表或“提示：”。信息不足只写：缺文本。",
     review:
-      "只输出一个审阅短签，2-4个中文字符。合并风险和追问，不要问题句、建议、解释、列表、标点或“审阅：”。信息不足只写：文本不足。",
+      "只输出一个审阅短签，2-4个中文字符。合并风险和追问，不要问题句、建议、解释、列表、标点或“审阅：”。信息不足只写：缺文本。",
   };
   const enInstructions: Record<QuickActionId, string> = {
     explain:
-      "Return one reading tag only, 1-2 words, under 10 characters if possible. No label, punctuation, sentence, bullet, explanation, advice, or slide-title restatement. If context is weak, write only: Need text.",
+      "Return one reading tag only. Prefer one word, two words max. No label, punctuation, sentence, bullet, explanation, advice, or slide-title restatement. If weak, write only: No text.",
     summary:
-      "Return one skim tag only, 1-2 words, under 10 characters if possible. Keep only the conclusion direction. No label, punctuation, sentence, bullet, explanation, or restatement. If context is weak, write only: Need text.",
+      "Return one skim tag only. Prefer one word, two words max. Keep only the conclusion direction. No label, punctuation, sentence, bullet, explanation, or restatement. If weak, write only: No text.",
     script:
-      "Return one presenter cue only, 1-2 words, under 10 characters if possible. No label, speaker note, background, punctuation, bullet, or explanation. If context is weak, write only: Need text.",
+      "Return one presenter cue only. Prefer one word, two words max. No label, speaker note, background, punctuation, bullet, or explanation. If weak, write only: No text.",
     review:
-      "Return one review tag only, 1-2 words, under 10 characters if possible. Merge risk plus question. No label, question sentence, recommendation, punctuation, bullet, or explanation. If context is weak, write only: Need text.",
+      "Return one review tag only. Prefer one word, two words max. Merge risk plus question. No label, question sentence, recommendation, punctuation, bullet, or explanation. If weak, write only: No text.",
   };
 
   if (isImportedSlide) {
@@ -1481,7 +1465,7 @@ export function getPersistedAISlideExportLines({
   };
 
   return [
-    `### ${t("ai.generated")}`,
+    `### ${t("export.manualAI")}`,
     "",
     ...assistantMessages.map(formatPresetLine),
     ...(assistantMessages.length > 0 ? [""] : []),

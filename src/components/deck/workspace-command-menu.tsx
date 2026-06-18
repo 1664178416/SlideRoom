@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   Download,
@@ -46,6 +46,10 @@ type CommandItem = {
   meta: string;
   run: () => void;
   section: "slides" | "actions";
+};
+type IndexedCommandSlide = {
+  searchText: string;
+  slide: Slide;
 };
 
 const maxCommandSlides = 7;
@@ -118,29 +122,22 @@ function WorkspaceCommandMenuDialog({
 }: Omit<WorkspaceCommandMenuProps, "open">) {
   const { language, t } = usePreferences();
   const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const indexedSlides = useMemo<IndexedCommandSlide[]>(() => {
+    return slides.map((slide) => {
+      const slideLabel = formatSlideLabel(slide.pageNumber, language);
+      const slideTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
+      const importedPreview = slide.section === "imported" ? getRawImportedCommandPreview(slide) : null;
+      const slideSummary = importedPreview
+        ? importedPreview.value || t(importedPreview.key)
+        : getGeneratedSlideSummary(slide.summary, slide.pageNumber, language);
+      const sectionKey = getSlideSectionKey(slide.section);
 
-  const slideItems = useMemo<CommandItem[]>(() => {
-    const normalizedQuery = query.trim();
-    const orderedSlides = normalizedQuery
-      ? slides
-      : [
-          currentSlide,
-          ...slides.filter((slide) => slide.id !== currentSlide.id),
-        ];
-
-    return orderedSlides
-      .filter((slide) => {
-        const slideLabel = formatSlideLabel(slide.pageNumber, language);
-        const slideTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
-        const importedPreview = slide.section === "imported" ? getRawImportedCommandPreview(slide) : null;
-        const slideSummary = importedPreview
-          ? importedPreview.value || t(importedPreview.key)
-          : getGeneratedSlideSummary(slide.summary, slide.pageNumber, language);
-        const sectionKey = getSlideSectionKey(slide.section);
-
-        return matchesQuery(normalizedQuery, [
+      return {
+        slide,
+        searchText: [
           String(slide.pageNumber),
           String(slide.pageNumber).padStart(2, "0"),
           slideLabel,
@@ -159,7 +156,31 @@ function WorkspaceCommandMenuDialog({
           getSlideSectionLabel(slide.section, "en"),
           slide.extractedText,
           slide.speakerNotes,
-        ]);
+        ]
+          .join(" ")
+          .toLowerCase(),
+      };
+    });
+  }, [language, slides, t]);
+  const indexedSlideSearchById = useMemo(() => {
+    return new Map(indexedSlides.map((item) => [item.slide.id, item.searchText]));
+  }, [indexedSlides]);
+
+  const slideItems = useMemo<CommandItem[]>(() => {
+    const normalizedQuery = deferredQuery.trim();
+    const normalizedQueryLower = normalizedQuery.toLowerCase();
+    const orderedSlides = normalizedQuery
+      ? indexedSlides.map(({ slide }) => slide)
+      : [
+          currentSlide,
+          ...slides.filter((slide) => slide.id !== currentSlide.id),
+        ];
+
+    return orderedSlides
+      .filter((slide) => {
+        if (!normalizedQuery) return true;
+
+        return indexedSlideSearchById.get(slide.id)?.includes(normalizedQueryLower) ?? false;
       })
       .slice(0, maxCommandSlides)
       .map((slide) => {
@@ -182,10 +203,10 @@ function WorkspaceCommandMenuDialog({
           section: "slides",
         };
       });
-  }, [currentSlide, language, onClose, onSelectSlide, query, slides, t]);
+  }, [currentSlide, deferredQuery, indexedSlideSearchById, indexedSlides, language, onClose, onSelectSlide, slides, t]);
 
   const actionItems = useMemo<CommandItem[]>(() => {
-    const normalizedQuery = query.trim();
+    const normalizedQuery = deferredQuery.trim();
     const items: CommandItem[] = [
       {
         id: "action-rail-search",
@@ -226,9 +247,9 @@ function WorkspaceCommandMenuDialog({
       {
         id: "action-export",
         icon: Download,
-        keywords: ["export", "download", "deck context", "reading context", "speaker notes", "markdown", "导出", "下载", "阅读上下文", "整份上下文", "备注"],
+        keywords: ["export", "download", "deck context", "reading context", "speaker notes", "manual AI", "markdown", "导出", "下载", "阅读上下文", "整份上下文", "备注", "手动 AI"],
         label: t("command.exportDeck"),
-        meta: t("common.export"),
+        meta: t("command.exportDeckMeta"),
         run: () => {
           onExport();
           onClose();
@@ -241,7 +262,7 @@ function WorkspaceCommandMenuDialog({
       if (item.id === "action-rail-search" && normalizedQuery) return true;
       return matchesQuery(normalizedQuery, [item.id, item.label, item.meta, ...(item.keywords ?? [])]);
     });
-  }, [inspectorOpen, onClose, onExport, onFocusRailSearch, onToggleInspector, onToggleRail, query, railOpen, t]);
+  }, [deferredQuery, inspectorOpen, onClose, onExport, onFocusRailSearch, onToggleInspector, onToggleRail, railOpen, t]);
 
   const commandItems = useMemo(() => [...slideItems, ...actionItems], [actionItems, slideItems]);
   const resolvedActiveItem = commandItems.find((item) => item.id === activeItemId) ?? commandItems[0];

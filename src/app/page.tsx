@@ -22,7 +22,8 @@ import { Badge } from "@/components/ui/badge";
 import { SlideArt } from "@/components/deck/slide-art";
 import { PreferencesControls } from "@/components/preferences-controls";
 import { contextQualityLabelKeys, getContextQualityTone } from "@/lib/context-quality";
-import { writeUploadedDeckSession } from "@/lib/deck-session";
+import { isUploadDeckFileError, uploadAndSyncDeckFile } from "@/lib/deck-upload-client";
+import { clearUploadedDeckSessions } from "@/lib/deck-session";
 import { getDeckSlides } from "@/lib/deck-slides";
 import { deckMeta, slides } from "@/lib/mock-data";
 import { getDeckDisplayTitle, normalizeDeckFileName } from "@/lib/deck-display";
@@ -30,16 +31,13 @@ import { clearProcessingSession, isProcessingComplete, processingDurationMs, wri
 import { getVisibleProcessingSteps } from "@/lib/processing-steps";
 import { clearRecentDecks, readRecentDecks, upsertRecentDeck, type RecentDeck, type RecentDeckStatus } from "@/lib/recent-decks";
 import {
+  getUploadDeckFileErrorCode,
   getDeckContextQuality,
   getSlideContextStats,
-  isSupportedDeckFileName,
-  maxUploadFileSizeBytes,
   type DeckContextQuality,
   type DeckInspectionStatus,
   type SlideContextStats,
   type UploadDeckErrorCode,
-  type UploadDeckResponse,
-  type UploadedDeckSession,
 } from "@/lib/upload-contract";
 import { Language, type TranslationKey, usePreferences } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
@@ -93,37 +91,6 @@ function buildProcessingHref(deckId: string, fileName: string, startedAt: number
 
 function getClientTimestamp() {
   return Date.now();
-}
-
-class UploadDeckFileError extends Error {
-  errorCode: UploadDeckErrorCode;
-
-  constructor(errorCode: UploadDeckErrorCode, message: string) {
-    super(message);
-    this.errorCode = errorCode;
-  }
-}
-
-function isUploadDeckFileError(error: unknown): error is UploadDeckFileError {
-  return error instanceof UploadDeckFileError;
-}
-
-async function uploadDeckFile(file: File): Promise<UploadedDeckSession> {
-  const formData = new FormData();
-
-  formData.set("file", file);
-
-  const response = await fetch("/api/decks/upload", {
-    body: formData,
-    method: "POST",
-  });
-  const result = (await response.json()) as UploadDeckResponse;
-
-  if (!result.ok) {
-    throw new UploadDeckFileError(result.errorCode, result.message);
-  }
-
-  return result.session;
 }
 
 function getResolvedRecentDeckStatus(recentDeck: RecentDeck, currentTimestamp: number): RecentDeckStatus {
@@ -300,10 +267,6 @@ export default function HomePage() {
     return recentDeck;
   }
 
-  function isSupportedDeckFile(file: File) {
-    return isSupportedDeckFileName(file.name);
-  }
-
   function beginProcessingSession({
     deckId,
     fileName,
@@ -432,6 +395,7 @@ export default function HomePage() {
   }
 
   function clearRecentHistory() {
+    clearUploadedDeckSessions();
     clearRecentDecks();
     clearProcessingSession();
     refreshRecentDecks();
@@ -451,55 +415,28 @@ export default function HomePage() {
     uploadRequestIdRef.current += 1;
     const uploadRequestId = uploadRequestIdRef.current;
 
-    if (!isSupportedDeckFile(file)) {
-      const failedFileName = normalizeDeckFileName(file.name, deckMeta.fileName);
-
-      clearProcessingTimers();
-      setActiveDeckId(localPreviewDeckId);
-      setFileName(failedFileName);
-      setActiveInspectionStatus("failed");
-      setActiveSlideCount(1);
-      setPreviewSlides(buildLocalPreviewSlides({ deckId: localPreviewDeckId, fileName: failedFileName, inspectionStatus: "failed" }));
-      setUploadErrorCode("unsupported_type");
-      setUploadState("error");
-      setProgress(0);
-      if (inputRef.current) inputRef.current.value = "";
-      return;
-    }
-
-    if (file.size <= 0) {
-      const failedFileName = normalizeDeckFileName(file.name, deckMeta.fileName);
-
-      clearProcessingTimers();
-      setActiveDeckId(localPreviewDeckId);
-      setFileName(failedFileName);
-      setActiveInspectionStatus("failed");
-      setActiveSlideCount(1);
-      setPreviewSlides(buildLocalPreviewSlides({ deckId: localPreviewDeckId, fileName: failedFileName, inspectionStatus: "failed" }));
-      setUploadErrorCode("empty_file");
-      setUploadState("error");
-      setProgress(0);
-      if (inputRef.current) inputRef.current.value = "";
-      return;
-    }
-
-    if (file.size > maxUploadFileSizeBytes) {
-      const failedFileName = normalizeDeckFileName(file.name, deckMeta.fileName);
-
-      clearProcessingTimers();
-      setActiveDeckId(localPreviewDeckId);
-      setFileName(failedFileName);
-      setActiveInspectionStatus("failed");
-      setActiveSlideCount(1);
-      setPreviewSlides(buildLocalPreviewSlides({ deckId: localPreviewDeckId, fileName: failedFileName, inspectionStatus: "failed" }));
-      setUploadErrorCode("file_too_large");
-      setUploadState("error");
-      setProgress(0);
-      if (inputRef.current) inputRef.current.value = "";
-      return;
-    }
-
     const optimisticFileName = normalizeDeckFileName(file.name, deckMeta.fileName);
+    const uploadFileErrorCode = getUploadDeckFileErrorCode(file);
+
+    if (uploadFileErrorCode) {
+      clearProcessingTimers();
+      setActiveDeckId(localPreviewDeckId);
+      setFileName(optimisticFileName);
+      setActiveInspectionStatus("failed");
+      setActiveSlideCount(1);
+      setPreviewSlides(
+        buildLocalPreviewSlides({
+          deckId: localPreviewDeckId,
+          fileName: optimisticFileName,
+          inspectionStatus: "failed",
+        }),
+      );
+      setUploadErrorCode(uploadFileErrorCode);
+      setUploadState("error");
+      setProgress(0);
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
 
     clearProcessingTimers();
     setActiveDeckId(localPreviewDeckId);
@@ -512,10 +449,8 @@ export default function HomePage() {
     setProgress(4);
 
     try {
-      const uploadedDeckSession = await uploadDeckFile(file);
+      const storedDeckSession = await uploadAndSyncDeckFile(file);
       if (uploadRequestId !== uploadRequestIdRef.current) return;
-
-      const storedDeckSession = writeUploadedDeckSession(uploadedDeckSession) ?? uploadedDeckSession;
       const uploadedSlides = getDeckSlides(storedDeckSession);
       const uploadedPageCount = Math.max(1, storedDeckSession.pageCount || uploadedSlides.length);
       const uploadedContextStats = getSlideContextStats(uploadedSlides);

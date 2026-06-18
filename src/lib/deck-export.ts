@@ -79,7 +79,7 @@ export function buildDeckMarkdownExport({
     `- ${t("common.totalSlides")}: ${pageCount}`,
     `- ${t("common.textSlides")}: ${contextStats.textSlideCount}/${pageCount}`,
     `- ${t("common.noteSlides")}: ${contextStats.speakerNotesSlideCount}/${pageCount}`,
-    `- ${t("settings.deferredAI")}: ${formatMarkdownInline(t("export.aiOnDemand"), emptyValue)}`,
+    `- ${t("export.aiContent")}: ${formatMarkdownInline(t("export.aiOnDemand"), emptyValue)}`,
     "",
     ...deckSlides.flatMap((slide) => {
       const slideTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);

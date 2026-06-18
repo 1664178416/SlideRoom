@@ -146,6 +146,7 @@ function getNetworkErrorMessage(error: unknown, endpoint: string, language: Lang
     return [
       "无法连接到模型服务。",
       "请检查 Base URL 是否正确、当前网络/代理是否能访问该域名，以及服务商是否支持对应的 OpenAI-compatible 接口。",
+      `尝试地址：${endpoint}`,
       `底层错误：${detail}`,
     ].join("\n");
   }
@@ -153,6 +154,7 @@ function getNetworkErrorMessage(error: unknown, endpoint: string, language: Lang
   return [
     "Could not connect to the model provider.",
     "Check whether the Base URL is correct, your network/proxy can reach the domain, and the provider supports the matching OpenAI-compatible endpoint.",
+    `Endpoint tried: ${endpoint}`,
     `Low-level error: ${detail}`,
   ].join("\n");
 }

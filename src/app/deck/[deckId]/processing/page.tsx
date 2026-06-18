@@ -17,19 +17,22 @@ import { Badge } from "@/components/ui/badge";
 import { PreferencesControls } from "@/components/preferences-controls";
 import { SlideArt } from "@/components/deck/slide-art";
 import { contextQualityLabelKeys, getContextQualityTone } from "@/lib/context-quality";
-import { readUploadedDeckSession, writeUploadedDeckSession } from "@/lib/deck-session";
+import { readUploadedDeckSession } from "@/lib/deck-session";
 import { getSessionDeckTitle, normalizeDeckFileName } from "@/lib/deck-display";
 import { getDeckSlides } from "@/lib/deck-slides";
-import { deckMeta, isDemoDeckId } from "@/lib/mock-data";
+import { deckMeta } from "@/lib/mock-data";
 import { processingDurationMs, readProcessingSession, writeProcessingSession, type ProcessingSession } from "@/lib/processing-session";
 import { getActiveProcessingStepIndex, processingSteps } from "@/lib/processing-steps";
 import { upsertRecentDeck } from "@/lib/recent-decks";
 import {
   getDeckContextQuality,
   getSlideContextStats,
-  type ReadDeckResponse,
   type UploadedDeckSession,
 } from "@/lib/upload-contract";
+import {
+  buildFallbackUploadedDeckSession,
+  fetchAndSyncUploadedDeckSession,
+} from "@/lib/uploaded-deck-session";
 import {
   formatSlideLabel,
   getGeneratedKickerLabel,
@@ -64,41 +67,6 @@ function readRouteProcessingSession(
   };
 }
 
-function buildFallbackUploadedSession({
-  deckId,
-  fileName,
-  processingSession,
-}: {
-  deckId: string;
-  fileName: string;
-  processingSession: ProcessingSession | null;
-}): UploadedDeckSession | null {
-  if (isDemoDeckId(deckId)) return null;
-
-  return {
-    deckId,
-    fileName,
-    inspectionStatus: "unsupported",
-    originalFileName: fileName,
-    pageCount: Math.max(1, processingSession?.pageCount ?? 1),
-    slides: [],
-    size: 0,
-    status: "uploaded",
-    storageKey: "",
-    uploadedAt: processingSession?.startedAt ?? 0,
-  };
-}
-
-async function fetchUploadedDeckSession(deckId: string) {
-  if (isDemoDeckId(deckId)) return null;
-
-  const response = await fetch(`/api/decks/${encodeURIComponent(deckId)}`);
-  const result = (await response.json()) as ReadDeckResponse;
-
-  if (!result.ok) return null;
-  return result.session;
-}
-
 export default function DeckProcessingPage() {
   const router = useRouter();
   const params = useParams<{ deckId?: string }>();
@@ -116,7 +84,7 @@ export default function DeckProcessingPage() {
   const processingStartedAt = processingSession?.startedAt ?? uploadedDeckSession?.uploadedAt ?? 0;
   const fileName = processingSession?.fileName ?? uploadedDeckSession?.fileName ?? deckMeta.fileName;
   const effectiveUploadedSession = useMemo(() => {
-    return uploadedDeckSession ?? buildFallbackUploadedSession({ deckId, fileName, processingSession });
+    return uploadedDeckSession ?? buildFallbackUploadedDeckSession({ deckId, fileName, processingSession });
   }, [deckId, fileName, processingSession, uploadedDeckSession]);
   const deckSlides = useMemo(() => getDeckSlides(effectiveUploadedSession), [effectiveUploadedSession]);
   const pageCount = deckSlides.length;
@@ -160,12 +128,11 @@ export default function DeckProcessingPage() {
       const storedUploadedDeckSession = readUploadedDeckSession(deckId);
       if (active) setUploadedDeckSession(storedUploadedDeckSession);
 
-      fetchUploadedDeckSession(deckId)
+      fetchAndSyncUploadedDeckSession(deckId)
         .then((session) => {
           if (!active || !session) return;
 
-          const storedSession = writeUploadedDeckSession(session) ?? session;
-          setUploadedDeckSession(storedSession);
+          setUploadedDeckSession(session);
         })
         .catch(() => {
           // Missing metadata should not block the processing fallback.

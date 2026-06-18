@@ -39,6 +39,11 @@ export type UploadDeckErrorCode =
   | "file_too_large"
   | "upload_failed";
 
+export type UploadDeckFileLike = {
+  name: string;
+  size: number;
+};
+
 export type UploadDeckResponse =
   | {
       ok: true;
@@ -64,6 +69,15 @@ export function isSupportedDeckFileName(fileName: string) {
   const normalizedName = fileName.toLowerCase();
 
   return normalizedName.endsWith(".ppt") || normalizedName.endsWith(".pptx");
+}
+
+export function getUploadDeckFileErrorCode(file: UploadDeckFileLike | null | undefined): UploadDeckErrorCode | null {
+  if (!file) return "missing_file";
+  if (!isSupportedDeckFileName(file.name)) return "unsupported_type";
+  if (file.size <= 0) return "empty_file";
+  if (file.size > maxUploadFileSizeBytes) return "file_too_large";
+
+  return null;
 }
 
 export function getSlideContextStats(

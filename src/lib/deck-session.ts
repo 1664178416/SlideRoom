@@ -7,8 +7,6 @@ import {
 
 const deckSessionsStorageKey = "slideroom-deck-sessions-v1";
 const maxStoredDeckSessions = 6;
-const maxStoredExtractedTextLength = 1600;
-const maxStoredSpeakerNotesLength = 2200;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -16,10 +14,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isInspectionStatus(value: unknown): value is DeckInspectionStatus {
   return value === "parsed" || value === "unsupported" || value === "failed";
-}
-
-function clipStoredText(value: string, maxLength: number) {
-  return value.trim().slice(0, maxLength);
 }
 
 function sanitizeSlides(value: unknown): UploadedSlideContext[] {
@@ -37,15 +31,9 @@ function sanitizeSlides(value: unknown): UploadedSlideContext[] {
           typeof slide.aspectRatio === "number" && Number.isFinite(slide.aspectRatio) && slide.aspectRatio > 0
             ? slide.aspectRatio
             : undefined,
-        extractedText:
-          typeof slide.extractedText === "string"
-            ? clipStoredText(slide.extractedText, maxStoredExtractedTextLength)
-            : "",
+        extractedText: "",
         imageUrl: typeof slide.imageUrl === "string" ? slide.imageUrl : undefined,
-        speakerNotes:
-          typeof slide.speakerNotes === "string"
-            ? clipStoredText(slide.speakerNotes, maxStoredSpeakerNotesLength)
-            : "",
+        speakerNotes: "",
         thumbnailUrl: typeof slide.thumbnailUrl === "string" ? slide.thumbnailUrl : undefined,
       });
 
@@ -99,7 +87,7 @@ function readDeckSessionMap() {
 
     return new Map(
       parsedSessions
-        .map(sanitizeUploadedDeckSession)
+        .map((session) => sanitizeUploadedDeckSession(session))
         .filter((session): session is UploadedDeckSession => Boolean(session))
         .map((session) => [session.deckId, session]),
     );
@@ -126,13 +114,16 @@ function writeDeckSessionMap(sessions: Map<string, UploadedDeckSession>) {
   if (typeof window === "undefined") return;
 
   const normalizedSessions = [...sessions.values()]
-    .map(sanitizeUploadedDeckSession)
+    .map((session) => sanitizeUploadedDeckSession(session))
     .filter((session): session is UploadedDeckSession => Boolean(session))
     .sort((left, right) => right.uploadedAt - left.uploadedAt)
     .slice(0, maxStoredDeckSessions);
 
   try {
-    window.localStorage.setItem(deckSessionsStorageKey, JSON.stringify(normalizedSessions));
+    window.localStorage.setItem(
+      deckSessionsStorageKey,
+      JSON.stringify(normalizedSessions.map(getStorageLightSession)),
+    );
   } catch {
     try {
       window.localStorage.setItem(
@@ -155,11 +146,25 @@ export function writeUploadedDeckSession(session: UploadedDeckSession) {
   sessions.set(sanitizedSession.deckId, sanitizedSession);
   writeDeckSessionMap(sessions);
 
-  return sanitizedSession;
+  return session;
+}
+
+export function syncUploadedDeckSession(session: UploadedDeckSession) {
+  return writeUploadedDeckSession(session) ?? session;
 }
 
 export function readUploadedDeckSession(deckId: string) {
   if (!deckId) return null;
 
   return readDeckSessionMap().get(deckId) ?? null;
+}
+
+export function clearUploadedDeckSessions() {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.removeItem(deckSessionsStorageKey);
+  } catch {
+    // Storage can fail in private mode or constrained environments.
+  }
 }

@@ -1,6 +1,6 @@
 import { CheckCircle2, Images, ListTree, Search, X } from "lucide-react";
 import { motion } from "motion/react";
-import { useMemo, useState, type KeyboardEvent, type RefObject } from "react";
+import { useDeferredValue, useMemo, useState, type KeyboardEvent, type RefObject } from "react";
 import { type Slide } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { SlideArt } from "@/components/deck/slide-art";
@@ -26,6 +26,10 @@ type SlideRailProps = {
 };
 
 type RailViewMode = "thumbnails" | "outline";
+type IndexedSlide = {
+  searchText: string;
+  slide: Slide;
+};
 
 function getRawImportedOutlinePreview(slide: Slide) {
   const rawText = slide.extractedText.replace(/\s+/g, " ").trim();
@@ -54,57 +58,65 @@ function getRawImportedOutlinePreview(slide: Slide) {
 export function SlideRail({ currentSlide, onSelect, onQueryChange, query, searchInputRef, slides }: SlideRailProps) {
   const { language, t } = usePreferences();
   const [viewMode, setViewMode] = useState<RailViewMode>("thumbnails");
+  const deferredQuery = useDeferredValue(query);
   const hasQuery = query.trim().length > 0;
+  const indexedSlides = useMemo<IndexedSlide[]>(() => {
+    return slides.map((slide) => {
+      const paddedPageNumber = String(slide.pageNumber).padStart(2, "0");
+
+      return {
+        slide,
+        searchText: [
+          String(slide.pageNumber),
+          paddedPageNumber,
+          formatSlideLabel(slide.pageNumber, language),
+          formatSlideLabel(slide.pageNumber, "zh"),
+          formatSlideLabel(slide.pageNumber, "en"),
+          slide.title,
+          getGeneratedSlideTitle(slide.title, slide.pageNumber, language),
+          getGeneratedSlideTitle(slide.title, slide.pageNumber, "zh"),
+          getGeneratedSlideTitle(slide.title, slide.pageNumber, "en"),
+          slide.section,
+          `section.${slide.section}`,
+          t(getSlideSectionKey(slide.section)),
+          getSlideSectionLabel(slide.section, "zh"),
+          getSlideSectionLabel(slide.section, "en"),
+          slide.kicker,
+          getGeneratedKickerLabel(slide.kicker, language),
+          getGeneratedKickerLabel(slide.kicker, "zh"),
+          getGeneratedKickerLabel(slide.kicker, "en"),
+          slide.summary,
+          getGeneratedSlideSummary(slide.summary, slide.pageNumber, language),
+          getGeneratedSlideSummary(slide.summary, slide.pageNumber, "zh"),
+          getGeneratedSlideSummary(slide.summary, slide.pageNumber, "en"),
+          slide.extractedText,
+          slide.visualSummary,
+          getGeneratedVisualSummary(slide.visualSummary, language),
+          getGeneratedVisualSummary(slide.visualSummary, "zh"),
+          getGeneratedVisualSummary(slide.visualSummary, "en"),
+          slide.speakerNotes,
+          slide.bullets.join(" "),
+          slide.metrics
+            .map(
+              (metric) =>
+                `${metric.label} ${getGeneratedMetricLabel(metric.label, language)} ${getGeneratedMetricLabel(metric.label, "zh")} ${getGeneratedMetricLabel(metric.label, "en")} ${metric.value}`,
+            )
+            .join(" "),
+        ]
+          .join(" ")
+          .toLowerCase(),
+      };
+    });
+  }, [language, slides, t]);
 
   const filteredSlides = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
+    const normalizedQuery = deferredQuery.trim().toLowerCase();
     if (!normalizedQuery) return slides;
 
-    return slides.filter((slide) => {
-      const paddedPageNumber = String(slide.pageNumber).padStart(2, "0");
-      const haystack = [
-        String(slide.pageNumber),
-        paddedPageNumber,
-        formatSlideLabel(slide.pageNumber, language),
-        formatSlideLabel(slide.pageNumber, "zh"),
-        formatSlideLabel(slide.pageNumber, "en"),
-        slide.title,
-        getGeneratedSlideTitle(slide.title, slide.pageNumber, language),
-        getGeneratedSlideTitle(slide.title, slide.pageNumber, "zh"),
-        getGeneratedSlideTitle(slide.title, slide.pageNumber, "en"),
-        slide.section,
-        `section.${slide.section}`,
-        t(getSlideSectionKey(slide.section)),
-        getSlideSectionLabel(slide.section, "zh"),
-        getSlideSectionLabel(slide.section, "en"),
-        slide.kicker,
-        getGeneratedKickerLabel(slide.kicker, language),
-        getGeneratedKickerLabel(slide.kicker, "zh"),
-        getGeneratedKickerLabel(slide.kicker, "en"),
-        slide.summary,
-        getGeneratedSlideSummary(slide.summary, slide.pageNumber, language),
-        getGeneratedSlideSummary(slide.summary, slide.pageNumber, "zh"),
-        getGeneratedSlideSummary(slide.summary, slide.pageNumber, "en"),
-        slide.extractedText,
-        slide.visualSummary,
-        getGeneratedVisualSummary(slide.visualSummary, language),
-        getGeneratedVisualSummary(slide.visualSummary, "zh"),
-        getGeneratedVisualSummary(slide.visualSummary, "en"),
-        slide.speakerNotes,
-        slide.bullets.join(" "),
-        slide.metrics
-          .map(
-            (metric) =>
-              `${metric.label} ${getGeneratedMetricLabel(metric.label, language)} ${getGeneratedMetricLabel(metric.label, "zh")} ${getGeneratedMetricLabel(metric.label, "en")} ${metric.value}`,
-          )
-          .join(" "),
-      ]
-        .join(" ")
-        .toLowerCase();
-
-      return haystack.includes(normalizedQuery);
-    });
-  }, [language, query, slides, t]);
+    return indexedSlides
+      .filter(({ searchText }) => searchText.includes(normalizedQuery))
+      .map(({ slide }) => slide);
+  }, [deferredQuery, indexedSlides, slides]);
 
   const outlineGroups = useMemo(() => {
     return filteredSlides.reduce<Array<{ section: Slide["section"]; slides: Slide[] }>>((groups, slide) => {
@@ -138,7 +150,7 @@ export function SlideRail({ currentSlide, onSelect, onQueryChange, query, search
       return;
     }
 
-    if (event.key === "Enter" && filteredSlides[0]) {
+    if (event.key === "Enter" && filteredSlides[0] && query === deferredQuery) {
       event.preventDefault();
       onSelect(filteredSlides[0]);
     }
@@ -216,16 +228,11 @@ export function SlideRail({ currentSlide, onSelect, onQueryChange, query, search
             {filteredSlides.map((slide, index) => {
               const active = slide.id === currentSlide.id;
               const displayTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
-              const showSectionMeta = slide.section !== "imported";
 
               return (
                 <motion.button
                   aria-current={active ? "true" : undefined}
-                  aria-label={
-                    showSectionMeta
-                      ? `${formatSlideLabel(slide.pageNumber, language)} · ${displayTitle} · ${t("common.section")}: ${t(getSlideSectionKey(slide.section))}`
-                      : `${formatSlideLabel(slide.pageNumber, language)} · ${displayTitle}`
-                  }
+                  aria-label={`${formatSlideLabel(slide.pageNumber, language)} · ${displayTitle}`}
                   className={cn(
                     "group w-full rounded-md border p-1.5 text-left transition",
                     active
@@ -243,14 +250,6 @@ export function SlideRail({ currentSlide, onSelect, onQueryChange, query, search
                       <div className="truncate text-xs font-medium">
                         {formatSlideLabel(slide.pageNumber, language)} · {displayTitle}
                       </div>
-                      {showSectionMeta && (
-                        <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-                          <span className="shrink-0 rounded-[4px] border border-border/70 bg-background/[0.48] px-1.5 py-0.5 leading-none dark:bg-background/[0.14]">
-                            {t("common.section")}
-                          </span>
-                          <span className="truncate">{t(getSlideSectionKey(slide.section))}</span>
-                        </div>
-                      )}
                     </div>
                     {active && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary/[0.76]" />}
                   </div>

@@ -9,12 +9,17 @@ export type AIProviderConfig = {
 
 const aiProviderConfigStorageKey = "slideroom-ai-provider-config-v1";
 
+export const aiProviderConfigChangeEvent = "slideroom-ai-provider-config-change";
+
 export const defaultAIProviderConfig: AIProviderConfig = {
   apiKey: "",
   baseUrl: "https://api.openai.com/v1",
   model: "",
   providerMode: "auto",
 };
+
+let memoryAIProviderConfig: AIProviderConfig = defaultAIProviderConfig;
+let memoryAIProviderConfigFallbackActive = false;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -40,34 +45,63 @@ export function sanitizeAIProviderConfig(value: unknown): AIProviderConfig {
   };
 }
 
+export function isCompleteAIProviderConfig(config: AIProviderConfig) {
+  return (
+    config.apiKey.trim().length > 0 &&
+    config.baseUrl.trim().length > 0 &&
+    config.model.trim().length > 0
+  );
+}
+
+function notifyAIProviderConfigChange() {
+  if (typeof window === "undefined") return;
+
+  window.dispatchEvent(new Event(aiProviderConfigChangeEvent));
+}
+
 export function readAIProviderConfig(): AIProviderConfig {
-  if (typeof window === "undefined") return defaultAIProviderConfig;
+  if (typeof window === "undefined") return memoryAIProviderConfig;
 
   try {
     const storedConfig = window.localStorage.getItem(aiProviderConfigStorageKey);
-    if (!storedConfig) return defaultAIProviderConfig;
+    if (!storedConfig) {
+      if (memoryAIProviderConfigFallbackActive) return memoryAIProviderConfig;
 
-    return sanitizeAIProviderConfig(JSON.parse(storedConfig));
+      memoryAIProviderConfig = defaultAIProviderConfig;
+      return defaultAIProviderConfig;
+    }
+
+    const nextConfig = sanitizeAIProviderConfig(JSON.parse(storedConfig));
+    memoryAIProviderConfig = nextConfig;
+    memoryAIProviderConfigFallbackActive = false;
+    return nextConfig;
   } catch {
-    return defaultAIProviderConfig;
+    return memoryAIProviderConfig;
   }
 }
 
 export function writeAIProviderConfig(config: AIProviderConfig) {
-  if (typeof window === "undefined") return defaultAIProviderConfig;
-
   const nextConfig = sanitizeAIProviderConfig(config);
+  memoryAIProviderConfig = nextConfig;
+  memoryAIProviderConfigFallbackActive = false;
+
+  if (typeof window === "undefined") return nextConfig;
 
   try {
     window.localStorage.setItem(aiProviderConfigStorageKey, JSON.stringify(nextConfig));
   } catch {
+    memoryAIProviderConfigFallbackActive = true;
     // Storage can be unavailable in private mode or constrained environments.
   }
+
+  notifyAIProviderConfigChange();
 
   return nextConfig;
 }
 
 export function clearAIProviderConfig() {
+  memoryAIProviderConfig = defaultAIProviderConfig;
+  memoryAIProviderConfigFallbackActive = false;
   if (typeof window === "undefined") return defaultAIProviderConfig;
 
   try {
@@ -75,6 +109,8 @@ export function clearAIProviderConfig() {
   } catch {
     // Storage can be unavailable in private mode or constrained environments.
   }
+
+  notifyAIProviderConfigChange();
 
   return defaultAIProviderConfig;
 }

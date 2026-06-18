@@ -7,8 +7,7 @@ import { deckMeta } from "@/lib/mock-data";
 import { inspectPptx } from "@/lib/pptx-inspector";
 import { renderDeckToImages } from "@/lib/ppt-renderer";
 import {
-  isSupportedDeckFileName,
-  maxUploadFileSizeBytes,
+  getUploadDeckFileErrorCode,
   type UploadDeckErrorCode,
   type UploadDeckResponse,
   type UploadedDeckSession,
@@ -81,16 +80,20 @@ export async function POST(request: Request) {
     }
 
     const fileName = normalizeDeckFileName(uploadedFile.name, deckMeta.fileName);
+    const uploadFileErrorCode = getUploadDeckFileErrorCode({
+      name: fileName,
+      size: uploadedFile.size,
+    });
 
-    if (!isSupportedDeckFileName(fileName)) {
+    if (uploadFileErrorCode === "unsupported_type") {
       return uploadError("unsupported_type", "Only .ppt and .pptx files are supported.");
     }
 
-    if (uploadedFile.size <= 0) {
+    if (uploadFileErrorCode === "empty_file") {
       return uploadError("empty_file", "The uploaded file is empty.");
     }
 
-    if (uploadedFile.size > maxUploadFileSizeBytes) {
+    if (uploadFileErrorCode === "file_too_large") {
       return uploadError("file_too_large", "The uploaded file is larger than the 50 MB local preview limit.", 413);
     }
 
@@ -114,7 +117,7 @@ export async function POST(request: Request) {
       outputDirectory: path.join(deckDirectory, "slides"),
     });
     const renderedImagesByPageNumber = new Map(renderedDeck.images.map((image) => [image.pageNumber, image]));
-    const pageCount = Math.max(1, renderedDeck.images.length || inspection.pageCount || 1);
+    const pageCount = Math.max(1, renderedDeck.images.length, inspection.pageCount || 0);
     const session: UploadedDeckSession = {
       deckId,
       fileName,

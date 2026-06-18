@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent, type WheelEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, Loader2, X } from "lucide-react";
 import { TopBar } from "@/components/deck/top-bar";
@@ -8,7 +8,8 @@ import { SlideRail } from "@/components/deck/slide-rail";
 import { SlideStage } from "@/components/deck/slide-stage";
 import { AIInspector } from "@/components/deck/ai-inspector";
 import { WorkspaceCommandMenu } from "@/components/deck/workspace-command-menu";
-import { readUploadedDeckSession, writeUploadedDeckSession } from "@/lib/deck-session";
+import { isUploadDeckFileError, uploadAndSyncDeckFile } from "@/lib/deck-upload-client";
+import { readUploadedDeckSession } from "@/lib/deck-session";
 import { getSessionDeckTitle, normalizeDeckFileName } from "@/lib/deck-display";
 import { buildDeckMarkdownExport, getDeckMarkdownFileName } from "@/lib/deck-export";
 import { getDeckSlides } from "@/lib/deck-slides";
@@ -16,15 +17,16 @@ import { deckMeta, isDemoDeckId, type Slide } from "@/lib/mock-data";
 import { readProcessingSession, writeProcessingSession, type ProcessingSession } from "@/lib/processing-session";
 import { upsertRecentDeck } from "@/lib/recent-decks";
 import {
+  getUploadDeckFileErrorCode,
   getDeckContextQuality,
   getSlideContextStats,
-  isSupportedDeckFileName,
-  maxUploadFileSizeBytes,
-  type ReadDeckResponse,
   type UploadDeckErrorCode,
-  type UploadDeckResponse,
   type UploadedDeckSession,
 } from "@/lib/upload-contract";
+import {
+  buildFallbackUploadedDeckSession,
+  fetchAndSyncUploadedDeckSession,
+} from "@/lib/uploaded-deck-session";
 import { type TranslationKey, usePreferences } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
 
@@ -37,7 +39,7 @@ type WorkspaceState = {
 
 const workspaceStorageKey = "slideroom-workspace-state-v2";
 const completedProcessingStartedAtOffsetMs = 3600;
-const slideWheelThreshold = 72;
+const slideWheelThreshold = 42;
 const slideWheelResetMs = 220;
 const slideWheelCooldownMs = 520;
 const slideSwipeThresholdPx = 56;
@@ -63,37 +65,6 @@ function buildProcessingHref(deckId: string, fileName: string, startedAt: number
   });
 
   return `/deck/${deckId}/processing?${processingParams.toString()}`;
-}
-
-class UploadDeckFileError extends Error {
-  errorCode: UploadDeckErrorCode;
-
-  constructor(errorCode: UploadDeckErrorCode, message: string) {
-    super(message);
-    this.errorCode = errorCode;
-  }
-}
-
-function isUploadDeckFileError(error: unknown): error is UploadDeckFileError {
-  return error instanceof UploadDeckFileError;
-}
-
-async function uploadDeckFile(file: File): Promise<UploadedDeckSession> {
-  const formData = new FormData();
-
-  formData.set("file", file);
-
-  const response = await fetch("/api/decks/upload", {
-    body: formData,
-    method: "POST",
-  });
-  const result = (await response.json()) as UploadDeckResponse;
-
-  if (!result.ok) {
-    throw new UploadDeckFileError(result.errorCode, result.message);
-  }
-
-  return result.session;
 }
 
 function getWorkspaceStorageKey(deckId: string) {
@@ -139,41 +110,6 @@ function writeWorkspaceState(deckId: string, deckSlides: Slide[], state: Workspa
   } catch {
     // Storage can fail in private mode or when quota is exhausted.
   }
-}
-
-function buildFallbackUploadedSession({
-  deckId,
-  fileName,
-  processingSession,
-}: {
-  deckId: string;
-  fileName: string;
-  processingSession: ProcessingSession | null;
-}): UploadedDeckSession | null {
-  if (isDemoDeckId(deckId)) return null;
-
-  return {
-    deckId,
-    fileName,
-    inspectionStatus: "unsupported",
-    originalFileName: fileName,
-    pageCount: Math.max(1, processingSession?.pageCount ?? 1),
-    slides: [],
-    size: 0,
-    status: "uploaded",
-    storageKey: "",
-    uploadedAt: processingSession?.startedAt ?? 0,
-  };
-}
-
-async function fetchUploadedDeckSession(deckId: string) {
-  if (isDemoDeckId(deckId)) return null;
-
-  const response = await fetch(`/api/decks/${encodeURIComponent(deckId)}`);
-  const result = (await response.json()) as ReadDeckResponse;
-
-  if (!result.ok) return null;
-  return result.session;
 }
 
 function normalizeWheelDelta(delta: number, deltaMode: number) {
@@ -256,7 +192,7 @@ export default function DeckWorkspacePage() {
   const [processingSession, setProcessingSession] = useState<ProcessingSession | null>(null);
   const deckFileName = routeDeckFileName ?? uploadedDeckSession?.fileName ?? processingSession?.fileName ?? deckMeta.fileName;
   const effectiveUploadedSession = useMemo(() => {
-    return uploadedDeckSession ?? buildFallbackUploadedSession({ deckId, fileName: deckFileName, processingSession });
+    return uploadedDeckSession ?? buildFallbackUploadedDeckSession({ deckId, fileName: deckFileName, processingSession });
   }, [deckFileName, deckId, processingSession, uploadedDeckSession]);
   const deckSlides = useMemo(() => getDeckSlides(effectiveUploadedSession), [effectiveUploadedSession]);
   const pageCount = deckSlides.length;
@@ -286,10 +222,11 @@ export default function DeckWorkspacePage() {
   const [restoredWorkspaceKey, setRestoredWorkspaceKey] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const stageInteractionRef = useRef<HTMLDivElement>(null);
   const exportReadyTimerRef = useRef<number | null>(null);
   const lastSlideWheelFlipRef = useRef(0);
   const wheelAccumulatorRef = useRef({
-    deltaY: 0,
+    delta: 0,
     lastAt: 0,
   });
   const swipeStartRef = useRef<{
@@ -334,12 +271,11 @@ export default function DeckWorkspacePage() {
         setSessionRestoreCheckedDeckId(deckId);
       }
 
-      fetchUploadedDeckSession(deckId)
+      fetchAndSyncUploadedDeckSession(deckId)
         .then((session) => {
           if (!active || !session) return;
 
-          const storedSession = writeUploadedDeckSession(session) ?? session;
-          setUploadedDeckSession(storedSession);
+          setUploadedDeckSession(session);
         })
         .catch(() => {
           // Missing metadata should not block opening the workspace fallback.
@@ -430,9 +366,48 @@ export default function DeckWorkspacePage() {
     [deckSlides],
   );
 
+  const navigateBySlideKey = useCallback(
+    (key: string, shiftKey = false) => {
+      if (key === "Home") {
+        selectSlideByIndex(0);
+        return true;
+      }
+
+      if (key === "End") {
+        selectSlideByIndex(deckSlides.length - 1);
+        return true;
+      }
+
+      if (key === " ") {
+        selectSlideByIndex(
+          shiftKey
+            ? Math.max(0, currentSlideIndex - 1)
+            : Math.min(deckSlides.length - 1, currentSlideIndex + 1),
+        );
+        return true;
+      }
+
+      if (key === "ArrowLeft" || key === "ArrowUp" || key === "PageUp") {
+        selectSlideByIndex(Math.max(0, currentSlideIndex - 1));
+        return true;
+      }
+
+      if (key === "ArrowRight" || key === "ArrowDown" || key === "PageDown") {
+        selectSlideByIndex(Math.min(deckSlides.length - 1, currentSlideIndex + 1));
+        return true;
+      }
+
+      return false;
+    },
+    [currentSlideIndex, deckSlides.length, selectSlideByIndex],
+  );
+
   const handleStageWheel = useCallback(
-    (event: WheelEvent<HTMLDivElement>) => {
+    (event: WheelEvent) => {
       if (commandOpen || event.ctrlKey || event.metaKey) return;
+
+      const stageElement = stageInteractionRef.current;
+      if (!stageElement) return;
 
       const target = event.target as HTMLElement | null;
       if (!target || isWheelIgnoredTarget(target)) return;
@@ -440,9 +415,17 @@ export default function DeckWorkspacePage() {
 
       const deltaX = normalizeWheelDelta(event.deltaX, event.deltaMode);
       const deltaY = normalizeWheelDelta(event.deltaY, event.deltaMode);
-      if (Math.abs(deltaY) <= Math.max(20, Math.abs(deltaX) * 1.25)) return;
+      const absDeltaX = Math.abs(deltaX);
+      const absDeltaY = Math.abs(deltaY);
+      const navigationDelta =
+        absDeltaY > Math.max(18, absDeltaX * 1.2)
+          ? deltaY
+          : absDeltaX > Math.max(18, absDeltaY * 1.2)
+            ? deltaX
+            : 0;
+      if (!navigationDelta) return;
 
-      const scrollableAncestor = getScrollableAncestor(target, event.currentTarget);
+      const scrollableAncestor = getScrollableAncestor(target, stageElement);
       if (scrollableAncestor && canConsumeWheelScroll(scrollableAncestor, deltaX, deltaY)) return;
 
       const now = Date.now();
@@ -452,18 +435,18 @@ export default function DeckWorkspacePage() {
       }
 
       if (now - wheelAccumulatorRef.current.lastAt > slideWheelResetMs) {
-        wheelAccumulatorRef.current.deltaY = 0;
+        wheelAccumulatorRef.current.delta = 0;
       }
 
-      wheelAccumulatorRef.current.deltaY += deltaY;
+      wheelAccumulatorRef.current.delta += navigationDelta;
       wheelAccumulatorRef.current.lastAt = now;
 
-      if (Math.abs(wheelAccumulatorRef.current.deltaY) < slideWheelThreshold) {
+      if (Math.abs(wheelAccumulatorRef.current.delta) < slideWheelThreshold) {
         return;
       }
 
       event.preventDefault();
-      const direction = wheelAccumulatorRef.current.deltaY > 0 ? 1 : -1;
+      const direction = wheelAccumulatorRef.current.delta > 0 ? 1 : -1;
       const nextSlideIndex = Math.min(
         deckSlides.length - 1,
         Math.max(0, currentSlideIndex + direction),
@@ -473,11 +456,19 @@ export default function DeckWorkspacePage() {
         selectSlideByIndex(nextSlideIndex);
       }
 
-      wheelAccumulatorRef.current.deltaY = 0;
+      wheelAccumulatorRef.current.delta = 0;
       lastSlideWheelFlipRef.current = now;
     },
     [commandOpen, currentSlideIndex, deckSlides.length, selectSlideByIndex],
   );
+
+  useEffect(() => {
+    const stageElement = stageInteractionRef.current;
+    if (!stageElement) return;
+
+    stageElement.addEventListener("wheel", handleStageWheel, { passive: false });
+    return () => stageElement.removeEventListener("wheel", handleStageWheel);
+  }, [handleStageWheel]);
 
   const handleStagePointerDown = useCallback(
     (event: PointerEvent<HTMLDivElement>) => {
@@ -548,6 +539,17 @@ export default function DeckWorkspacePage() {
     [currentSlideIndex, deckSlides.length, selectSlideByIndex],
   );
 
+  const handleStageKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (commandOpen || aiSettingsOpen || settingsOpen) return;
+      if (!navigateBySlideKey(event.key, event.shiftKey)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    [aiSettingsOpen, commandOpen, navigateBySlideKey, settingsOpen],
+  );
+
   const focusSearch = useCallback((query = "") => {
     setAISettingsOpen(false);
     setSettingsOpen(false);
@@ -575,27 +577,16 @@ export default function DeckWorkspacePage() {
   const handleWorkspaceUploadFile = useCallback(
     async (file: File) => {
       if (workspaceUploadBusy) return;
-
-      if (!isSupportedDeckFileName(file.name)) {
-        setWorkspaceUploadErrorCode("unsupported_type");
-        return;
-      }
-
-      if (file.size <= 0) {
-        setWorkspaceUploadErrorCode("empty_file");
-        return;
-      }
-
-      if (file.size > maxUploadFileSizeBytes) {
-        setWorkspaceUploadErrorCode("file_too_large");
+      const uploadFileErrorCode = getUploadDeckFileErrorCode(file);
+      if (uploadFileErrorCode) {
+        setWorkspaceUploadErrorCode(uploadFileErrorCode);
         return;
       }
 
       setWorkspaceUploadErrorCode(null);
       setWorkspaceUploadBusy(true);
       try {
-        const uploadedDeckSession = await uploadDeckFile(file);
-        const storedDeckSession = writeUploadedDeckSession(uploadedDeckSession) ?? uploadedDeckSession;
+        const storedDeckSession = await uploadAndSyncDeckFile(file);
         const uploadedPageCount = Math.max(1, storedDeckSession.pageCount || getDeckSlides(storedDeckSession).length);
 
         writeProcessingSession({
@@ -704,58 +695,35 @@ export default function DeckWorkspacePage() {
         return;
       }
 
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "e") {
-        event.preventDefault();
-        exportDeck();
-        return;
-      }
-
       if (event.key === "Escape") {
         setAISettingsOpen(false);
         setSettingsOpen(false);
         return;
       }
 
+      if (aiSettingsOpen || settingsOpen) return;
+
       if (isEditing || isControlTarget) return;
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "e") {
+        event.preventDefault();
+        exportDeck();
+        return;
+      }
 
       if (event.key === "/") {
         event.preventDefault();
         focusSearch();
       }
 
-      if (event.key === "Home") {
+      if (navigateBySlideKey(event.key, event.shiftKey)) {
         event.preventDefault();
-        selectSlideByIndex(0);
-      }
-
-      if (event.key === "End") {
-        event.preventDefault();
-        selectSlideByIndex(deckSlides.length - 1);
-      }
-
-      if (event.key === " ") {
-        event.preventDefault();
-        selectSlideByIndex(
-          event.shiftKey
-            ? Math.max(0, currentSlideIndex - 1)
-            : Math.min(deckSlides.length - 1, currentSlideIndex + 1),
-        );
-      }
-
-      if (event.key === "ArrowLeft" || event.key === "ArrowUp" || event.key === "PageUp") {
-        event.preventDefault();
-        selectSlideByIndex(Math.max(0, currentSlideIndex - 1));
-      }
-
-      if (event.key === "ArrowRight" || event.key === "ArrowDown" || event.key === "PageDown") {
-        event.preventDefault();
-        selectSlideByIndex(Math.min(deckSlides.length - 1, currentSlideIndex + 1));
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [commandOpen, currentSlideIndex, deckSlides.length, exportDeck, focusSearch, selectSlideByIndex]);
+  }, [aiSettingsOpen, commandOpen, exportDeck, focusSearch, navigateBySlideKey, settingsOpen]);
 
   const workspaceGridClassName = cn(
     "grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-visible transition-[grid-template-columns] duration-200 lg:overflow-hidden",
@@ -867,12 +835,15 @@ export default function DeckWorkspacePage() {
       )}
       <div className={workspaceGridClassName}>
         <div
-          className="order-1 min-h-0 min-w-0 lg:order-2 lg:h-full"
+          aria-label={t("stage.viewer")}
+          className="order-1 min-h-0 min-w-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:order-2 lg:h-full"
           data-workspace-stage="true"
+          onKeyDown={handleStageKeyDown}
           onPointerCancel={handleStagePointerCancel}
           onPointerDown={handleStagePointerDown}
           onPointerUp={handleStagePointerUp}
-          onWheel={handleStageWheel}
+          ref={stageInteractionRef}
+          tabIndex={0}
         >
           <SlideStage
             hasNextSlide={currentSlideIndex < deckSlides.length - 1}
@@ -887,7 +858,7 @@ export default function DeckWorkspacePage() {
         <div
           aria-hidden={!inspectorOpen}
           className={cn(
-            "order-2 min-h-0 min-w-0 lg:order-3 lg:h-full",
+            "order-3 min-h-0 min-w-0 lg:order-3 lg:h-full",
             !inspectorOpen && "hidden",
           )}
           data-workspace-inspector="true"
@@ -895,7 +866,7 @@ export default function DeckWorkspacePage() {
           <AIInspector key={deckId} deckId={deckId} deckSlides={deckSlides} slide={currentSlide} />
         </div>
         {railOpen && (
-          <div className="order-3 min-h-0 min-w-0 lg:order-1 lg:h-full" data-workspace-rail="true">
+          <div className="order-2 min-h-0 min-w-0 lg:order-1 lg:h-full" data-workspace-rail="true">
             <SlideRail
               currentSlide={currentSlide}
               onQueryChange={setRailQuery}

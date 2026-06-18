@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
+  Copy,
   Maximize2,
   Minus,
   Plus,
@@ -13,7 +15,6 @@ import { SlideArt } from "@/components/deck/slide-art";
 import {
   formatSlideLabel,
   getGeneratedSlideTitle,
-  getSlideSectionKey,
   usePreferences,
 } from "@/lib/preferences";
 
@@ -42,14 +43,16 @@ export function SlideStage({
 }: SlideStageProps) {
   const { language, t } = usePreferences();
   const stageViewportRef = useRef<HTMLDivElement | null>(null);
+  const copyNotesTimerRef = useRef<number | null>(null);
   const [stageViewportSize, setStageViewportSize] = useState({ width: 0, height: 0 });
+  const [copiedNotesSlideId, setCopiedNotesSlideId] = useState<string | null>(null);
   const zoomAtFit = Math.abs(zoom - 1) < 0.005;
   const zoomAtMin = zoom <= minZoom + 0.005;
   const zoomAtMax = zoom >= maxZoom - 0.005;
   const displayTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
   const speakerNotes = slide.speakerNotes.trim();
   const hasSpeakerNotes = speakerNotes.length > 0;
-  const showSectionMeta = slide.section !== "imported";
+  const notesCopied = copiedNotesSlideId === slide.id;
   const slideAspectRatio = slide.aspectRatio && slide.aspectRatio > 0 ? slide.aspectRatio : 16 / 10;
   const fittedSlideSize = useMemo(() => {
     if (stageViewportSize.width <= 0 || stageViewportSize.height <= 0) {
@@ -96,6 +99,32 @@ export function SlideStage({
     return () => resizeObserver.disconnect();
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (copyNotesTimerRef.current !== null) {
+        window.clearTimeout(copyNotesTimerRef.current);
+      }
+    };
+  }, []);
+
+  async function copySpeakerNotes() {
+    if (!speakerNotes) return;
+
+    try {
+      await window.navigator.clipboard.writeText(speakerNotes);
+      setCopiedNotesSlideId(slide.id);
+      if (copyNotesTimerRef.current !== null) {
+        window.clearTimeout(copyNotesTimerRef.current);
+      }
+      copyNotesTimerRef.current = window.setTimeout(() => {
+        setCopiedNotesSlideId(null);
+        copyNotesTimerRef.current = null;
+      }, 1200);
+    } catch {
+      setCopiedNotesSlideId(null);
+    }
+  }
+
   return (
     <main className="glass-panel flex min-h-[560px] flex-col rounded-md sm:min-h-[640px] lg:h-full lg:min-h-0">
       <div className="flex min-h-14 shrink-0 flex-col items-stretch justify-center gap-2 border-b border-border/[0.72] px-3 py-2 sm:h-14 sm:flex-row sm:items-center sm:justify-between sm:py-0">
@@ -103,14 +132,6 @@ export function SlideStage({
           <Badge tone="accent">{formatSlideLabel(slide.pageNumber, language)}</Badge>
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold">{displayTitle}</div>
-            {showSectionMeta && (
-              <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-                <span className="rounded-[4px] border border-border/70 bg-background/[0.48] px-1.5 py-0.5 leading-none dark:bg-background/[0.14]">
-                  {t("common.section")}
-                </span>
-                <span className="truncate">{t(getSlideSectionKey(slide.section))}</span>
-              </div>
-            )}
           </div>
         </div>
 
@@ -171,9 +192,20 @@ export function SlideStage({
 
       <div className="shrink-0 border-t border-border/[0.72] bg-background/20 px-3 py-2 dark:bg-background/10">
         {hasSpeakerNotes ? (
-          <div className="overflow-hidden rounded-md border border-border/[0.72] bg-white/[0.38] shadow-[0_1px_0_rgba(255,255,255,0.58)_inset] dark:bg-secondary/[0.24] dark:shadow-none">
+          <div className="relative overflow-hidden rounded-md border border-border/[0.72] bg-white/[0.38] shadow-[0_1px_0_rgba(255,255,255,0.58)_inset] dark:bg-secondary/[0.24] dark:shadow-none">
+            <Button
+              aria-label={notesCopied ? t("stage.notesCopied") : t("stage.copyNotes")}
+              className="absolute right-2 top-2 z-10 h-7 w-7 bg-background/80 text-muted-foreground shadow-sm backdrop-blur transition hover:text-foreground"
+              onClick={copySpeakerNotes}
+              size="icon"
+              title={notesCopied ? t("stage.notesCopied") : t("stage.copyNotes")}
+              type="button"
+              variant="ghost"
+            >
+              {notesCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            </Button>
             <div
-              className="max-h-[148px] min-h-[76px] overflow-y-auto px-3.5 py-2.5 text-sm leading-6 [scrollbar-gutter:stable]"
+              className="max-h-[148px] min-h-[76px] overflow-y-auto px-3.5 py-2.5 pr-11 text-sm leading-6 [scrollbar-gutter:stable]"
               data-slide-notes-scroll="true"
             >
               <p className="whitespace-pre-wrap break-words text-foreground/78">{speakerNotes}</p>

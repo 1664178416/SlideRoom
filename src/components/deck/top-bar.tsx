@@ -30,7 +30,9 @@ import { PreferencesControls } from "@/components/preferences-controls";
 import {
   defaultAIProviderConfig,
   clearAIProviderConfig,
+  isCompleteAIProviderConfig,
   readAIProviderConfig,
+  sanitizeAIProviderConfig,
   writeAIProviderConfig,
   type AIProviderConfig,
 } from "@/lib/ai-provider-config";
@@ -80,6 +82,10 @@ function clipStatusMessage(value: string) {
   return `${normalizedValue.slice(0, 217).trimEnd()}...`;
 }
 
+function getAIProviderConfigSignature(config: AIProviderConfig) {
+  return JSON.stringify(sanitizeAIProviderConfig(config));
+}
+
 export function TopBar({
   aiSettingsOpen,
   contextQuality,
@@ -106,6 +112,7 @@ export function TopBar({
   const controlsRef = useRef<HTMLDivElement>(null);
   const saveFeedbackTimerRef = useRef<number | null>(null);
   const [aiProviderConfig, setAIProviderConfig] = useState<AIProviderConfig>(defaultAIProviderConfig);
+  const [savedAIProviderConfig, setSavedAIProviderConfig] = useState<AIProviderConfig>(defaultAIProviderConfig);
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [aiTestMessage, setAITestMessage] = useState("");
   const [aiTestStatus, setAITestStatus] = useState<"error" | "idle" | "success" | "testing">("idle");
@@ -121,11 +128,18 @@ export function TopBar({
   const railLabel = railOpen ? t("workspace.hideSlideRail") : t("workspace.showSlideRail");
   const inspectorLabel = inspectorOpen ? t("workspace.hideInspector") : t("workspace.showInspector");
   const exportLabel = exportReady ? t("workspace.exported") : t("common.exportDeckNotes");
+  const exportTitle = exportReady ? exportLabel : `${exportLabel} · ${t("command.exportDeckMeta")}`;
   const uploadLabel = uploadBusy ? t("home.processing") : t("home.uploadPpt");
-  const aiConfigured =
-    aiProviderConfig.apiKey.trim().length > 0 &&
-    aiProviderConfig.baseUrl.trim().length > 0 &&
-    aiProviderConfig.model.trim().length > 0;
+  const draftAIConfigured = isCompleteAIProviderConfig(aiProviderConfig);
+  const savedAIConfigured = isCompleteAIProviderConfig(savedAIProviderConfig);
+  const hasUnsavedAIChanges =
+    getAIProviderConfigSignature(aiProviderConfig) !== getAIProviderConfigSignature(savedAIProviderConfig);
+  const aiStatusLabel = hasUnsavedAIChanges
+    ? t("settings.unsavedChanges")
+    : savedAIConfigured
+      ? t("settings.configured")
+      : t("settings.notConfigured");
+  const aiStatusTone = hasUnsavedAIChanges ? "accent" : savedAIConfigured ? "success" : "neutral";
 
   useEffect(() => {
     if (!settingsOpen && !aiSettingsOpen) return;
@@ -148,7 +162,9 @@ export function TopBar({
 
   useEffect(() => {
     const restoreTimerId = window.setTimeout(() => {
-      setAIProviderConfig(readAIProviderConfig());
+      const restoredConfig = readAIProviderConfig();
+      setAIProviderConfig(restoredConfig);
+      setSavedAIProviderConfig(restoredConfig);
     }, 0);
 
     return () => {
@@ -176,6 +192,7 @@ export function TopBar({
     const savedConfig = writeAIProviderConfig(aiProviderConfig);
 
     setAIProviderConfig(savedConfig);
+    setSavedAIProviderConfig(savedConfig);
     setSaveFeedbackVisible(true);
     if (saveFeedbackTimerRef.current !== null) {
       window.clearTimeout(saveFeedbackTimerRef.current);
@@ -188,19 +205,19 @@ export function TopBar({
   }
 
   async function testAISettings() {
-    if (!aiConfigured || aiTestStatus === "testing") return;
+    if (!draftAIConfigured || aiTestStatus === "testing") return;
 
     setSaveFeedbackVisible(false);
     setAITestStatus("testing");
     setAITestMessage("");
 
     try {
-      const savedConfig = writeAIProviderConfig(aiProviderConfig);
-      setAIProviderConfig(savedConfig);
+      const testConfig = sanitizeAIProviderConfig(aiProviderConfig);
+      setAIProviderConfig(testConfig);
       const testResult = await generateAI({
-        config: savedConfig,
+        config: testConfig,
         language,
-        maxOutputTokens: 24,
+        maxOutputTokens: 5,
         prompt:
           language === "zh"
             ? "连接测试。只回复：连接正常"
@@ -226,6 +243,7 @@ export function TopBar({
     const clearedConfig = clearAIProviderConfig();
 
     setAIProviderConfig(clearedConfig);
+    setSavedAIProviderConfig(clearedConfig);
     setApiKeyVisible(false);
     setAITestStatus("idle");
     setAITestMessage("");
@@ -327,6 +345,7 @@ export function TopBar({
           aria-haspopup="dialog"
           aria-label={t("settings.aiProvider")}
           data-ai-provider-settings="true"
+          data-ai-settings-trigger="true"
           onClick={onToggleAISettings}
           size="sm"
           title={t("settings.aiProvider")}
@@ -339,16 +358,16 @@ export function TopBar({
             aria-hidden="true"
             className={[
               "h-1.5 w-1.5 rounded-full",
-              aiConfigured ? "bg-primary" : "bg-muted-foreground/50",
+              hasUnsavedAIChanges ? "bg-amber-500" : savedAIConfigured ? "bg-primary" : "bg-muted-foreground/50",
             ].join(" ")}
           />
         </Button>
         <Button
-          aria-label={exportLabel}
+          aria-label={exportTitle}
           data-workspace-export="true"
           onClick={onExport}
           size="sm"
-          title={exportLabel}
+          title={exportTitle}
           type="button"
           variant={exportReady ? "secondary" : "ghost"}
         >
@@ -414,9 +433,7 @@ export function TopBar({
                         {t("settings.aiProviderHint")}
                       </p>
                     </div>
-                    <Badge tone={aiConfigured ? "success" : "neutral"}>
-                      {aiConfigured ? t("settings.configured") : t("settings.notConfigured")}
-                    </Badge>
+                    <Badge tone={aiStatusTone}>{aiStatusLabel}</Badge>
                   </div>
 
                   <div className="space-y-2">
@@ -527,7 +544,7 @@ export function TopBar({
                           {t("settings.clearAISettings")}
                         </Button>
                         <Button
-                          disabled={!aiConfigured || aiTestStatus === "testing"}
+                          disabled={!draftAIConfigured || aiTestStatus === "testing"}
                           onClick={testAISettings}
                           size="sm"
                           title={t("settings.testAISettingsHint")}
@@ -543,7 +560,7 @@ export function TopBar({
                           )}
                           {t("settings.testAISettings")}
                         </Button>
-                        <Button onClick={saveAISettings} size="sm" type="button">
+                        <Button disabled={!draftAIConfigured || aiTestStatus === "testing"} onClick={saveAISettings} size="sm" type="button">
                           <CheckCircle2 className="h-3.5 w-3.5" />
                           {t("settings.saveAISettings")}
                         </Button>
