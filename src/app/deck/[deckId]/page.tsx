@@ -12,6 +12,7 @@ import { isUploadDeckFileError, uploadAndSyncDeckFile } from "@/lib/deck-upload-
 import { readUploadedDeckSession } from "@/lib/deck-session";
 import { getSessionDeckTitle, normalizeDeckFileName } from "@/lib/deck-display";
 import { buildDeckMarkdownExport, getDeckMarkdownFileName } from "@/lib/deck-export";
+import { buildDeckProcessingHref } from "@/lib/deck-routes";
 import { getDeckSlides } from "@/lib/deck-slides";
 import { deckMeta, isDemoDeckId, type Slide } from "@/lib/mock-data";
 import { readProcessingSession, writeProcessingSession, type ProcessingSession } from "@/lib/processing-session";
@@ -55,16 +56,6 @@ const uploadErrorMessageKeys: Record<UploadDeckErrorCode, TranslationKey> = {
 
 function getClientTimestamp() {
   return Date.now();
-}
-
-function buildProcessingHref(deckId: string, fileName: string, startedAt: number, pageCount = deckMeta.pageCount) {
-  const processingParams = new URLSearchParams({
-    fileName: normalizeDeckFileName(fileName, deckMeta.fileName),
-    pageCount: String(Math.max(1, Math.round(pageCount))),
-    startedAt: String(startedAt || getClientTimestamp()),
-  });
-
-  return `/deck/${deckId}/processing?${processingParams.toString()}`;
 }
 
 function getWorkspaceStorageKey(deckId: string) {
@@ -597,12 +588,13 @@ export default function DeckWorkspacePage() {
         });
 
         router.push(
-          buildProcessingHref(
-            storedDeckSession.deckId,
-            storedDeckSession.fileName,
-            storedDeckSession.uploadedAt,
-            uploadedPageCount,
-          ),
+          buildDeckProcessingHref({
+            deckId: storedDeckSession.deckId,
+            fileName: storedDeckSession.fileName,
+            now: getClientTimestamp(),
+            pageCount: uploadedPageCount,
+            startedAt: storedDeckSession.uploadedAt,
+          }),
         );
       } catch (error) {
         const errorCode = isUploadDeckFileError(error) ? error.errorCode : "upload_failed";

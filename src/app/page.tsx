@@ -24,6 +24,7 @@ import { PreferencesControls } from "@/components/preferences-controls";
 import { contextQualityLabelKeys, getContextQualityTone } from "@/lib/context-quality";
 import { isUploadDeckFileError, uploadAndSyncDeckFile } from "@/lib/deck-upload-client";
 import { clearUploadedDeckSessions } from "@/lib/deck-session";
+import { buildDeckProcessingHref, buildDeckWorkspaceHref } from "@/lib/deck-routes";
 import { getDeckSlides } from "@/lib/deck-slides";
 import { deckMeta, slides } from "@/lib/mock-data";
 import { getDeckDisplayTitle, normalizeDeckFileName } from "@/lib/deck-display";
@@ -70,24 +71,6 @@ type RecentDeckContextMeta = {
   contextQuality?: DeckContextQuality;
   contextStats?: SlideContextStats;
 };
-
-function buildWorkspaceHref(deckId: string, fileName: string) {
-  const normalizedName = normalizeDeckFileName(fileName, deckMeta.fileName);
-  if (normalizedName === deckMeta.fileName) return `/deck/${deckId}`;
-
-  const workspaceParams = new URLSearchParams({ fileName: normalizedName });
-  return `/deck/${deckId}?${workspaceParams.toString()}`;
-}
-
-function buildProcessingHref(deckId: string, fileName: string, startedAt: number, pageCount = deckMeta.pageCount) {
-  const processingParams = new URLSearchParams({
-    fileName: normalizeDeckFileName(fileName, deckMeta.fileName),
-    pageCount: String(Math.max(1, Math.round(pageCount))),
-    startedAt: String(startedAt || getClientTimestamp()),
-  });
-
-  return `/deck/${deckId}/processing?${processingParams.toString()}`;
-}
 
 function getClientTimestamp() {
   return Date.now();
@@ -223,8 +206,13 @@ export default function HomePage() {
           textSlideCount: 0,
         }
       : contextStats;
+  const showingDemoPreview =
+    uploadState === "idle" &&
+    activeDeckId === deckMeta.id &&
+    fileName === deckMeta.fileName &&
+    activeSlideCount === deckMeta.pageCount;
   const optimisticUploadPending = uploadState === "processing" && activeDeckId === localPreviewDeckId;
-  const showContextQuality = uploadState !== "idle" && !optimisticUploadPending;
+  const showContextQuality = (uploadState !== "idle" || showingDemoPreview) && !optimisticUploadPending;
   const uploadErrorHint = uploadErrorCode ? t(uploadErrorMessageKeys[uploadErrorCode]) : null;
 
   const clearProcessingTimers = useCallback(() => {
@@ -306,7 +294,9 @@ export default function HomePage() {
       processingTimersRef.current.push(timerId);
     });
 
-    router.push(buildProcessingHref(deckId, normalizedName, startedAt, pageCount));
+    router.push(
+      buildDeckProcessingHref({ deckId, fileName: normalizedName, now: getClientTimestamp(), pageCount, startedAt }),
+    );
   }
 
   function openDemoWorkspace() {
@@ -338,7 +328,7 @@ export default function HomePage() {
       });
     }
 
-    router.push(buildWorkspaceHref(activeDeckId, normalizedName));
+    router.push(buildDeckWorkspaceHref(activeDeckId, normalizedName));
   }
 
   function openRecentDeck(recentDeck: RecentDeck) {
@@ -367,7 +357,15 @@ export default function HomePage() {
         pageCount: recentDeck.slideCount,
         startedAt: processingStartedAt,
       });
-      router.push(buildProcessingHref(recentDeck.deckId, normalizedName, processingStartedAt, recentDeck.slideCount));
+      router.push(
+        buildDeckProcessingHref({
+          deckId: recentDeck.deckId,
+          fileName: normalizedName,
+          now: getClientTimestamp(),
+          pageCount: recentDeck.slideCount,
+          startedAt: processingStartedAt,
+        }),
+      );
       return;
     }
 
@@ -391,7 +389,7 @@ export default function HomePage() {
       });
     }
 
-    router.push(buildWorkspaceHref(recentDeck.deckId, normalizedName));
+    router.push(buildDeckWorkspaceHref(recentDeck.deckId, normalizedName));
   }
 
   function clearRecentHistory() {
@@ -557,18 +555,22 @@ export default function HomePage() {
   }, [hasActiveProcessingRecentDeck]);
 
   const statusLabel = {
-    idle: t("home.waiting"),
+    idle: showingDemoPreview ? t("home.sampleReady") : t("home.waiting"),
     processing: t("home.processing"),
     ready: t("home.ready"),
     error: t("home.invalidFile"),
   }[uploadState];
 
   const statusHint = {
-    idle: t("home.fileTypes"),
+    idle: showingDemoPreview ? t("home.sampleReadyHint") : t("home.fileTypes"),
     processing: t("home.processingHint"),
     ready: t("home.readyHint"),
     error: uploadErrorHint ?? t("home.invalidFileHint"),
   }[uploadState];
+  const previewProgress = showingDemoPreview ? 100 : progress;
+  const openWorkspaceDisabled = uploadState !== "ready" && !showingDemoPreview;
+  const openWorkspaceLabel = showingDemoPreview ? t("home.enterWorkspace") : t("home.openWorkspace");
+  const openWorkspaceAction = showingDemoPreview ? openDemoWorkspace : openReadyWorkspace;
 
   return (
     <main className="min-h-screen p-3">
@@ -693,7 +695,7 @@ export default function HomePage() {
 
               <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-muted">
                 <motion.div
-                  animate={{ width: `${progress}%` }}
+                  animate={{ width: `${previewProgress}%` }}
                   className={cn("h-full rounded-full", uploadState === "error" ? "bg-destructive" : "bg-primary")}
                   transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
                 />
@@ -702,7 +704,10 @@ export default function HomePage() {
               <div className="mt-4 min-h-0 flex-1 overflow-hidden rounded-md border border-border/[0.62] bg-background/[0.28] p-2 dark:bg-background/[0.12]">
                 <div className="grid max-h-full grid-cols-2 gap-2 overflow-y-auto pr-1">
                   {previewSlides.map((slide, index) => {
-                    const ready = uploadState === "ready" || progress >= ((index + 1) / previewSlides.length) * 92;
+                    const ready =
+                      showingDemoPreview ||
+                      uploadState === "ready" ||
+                      previewProgress >= ((index + 1) / previewSlides.length) * 92;
                     return (
                       <motion.div
                         animate={{ opacity: ready ? 1 : 0.42, y: ready ? 0 : 4 }}
@@ -728,10 +733,10 @@ export default function HomePage() {
 
               <Button
                 className="mt-4 w-full"
-                disabled={uploadState !== "ready"}
-                onClick={openReadyWorkspace}
+                disabled={openWorkspaceDisabled}
+                onClick={openWorkspaceAction}
               >
-                {t("home.openWorkspace")}
+                {openWorkspaceLabel}
                 <ArrowRight className="h-4 w-4" />
               </Button>
 

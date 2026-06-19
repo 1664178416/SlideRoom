@@ -2,19 +2,11 @@ import { CheckCircle2, Images, ListTree, Search, X } from "lucide-react";
 import { motion } from "motion/react";
 import { useDeferredValue, useMemo, useState, type KeyboardEvent, type RefObject } from "react";
 import { type Slide } from "@/lib/mock-data";
+import { buildSlideSearchText, getImportedSlidePreview } from "@/lib/deck-search";
+import { getSlideDisplayHeading, getSlideDisplaySummary, getSlideDisplayTitle } from "@/lib/slide-derived";
 import { cn } from "@/lib/utils";
 import { SlideArt } from "@/components/deck/slide-art";
-import {
-  formatSlideLabel,
-  getGeneratedKickerLabel,
-  getGeneratedMetricLabel,
-  getGeneratedSlideTitle,
-  getGeneratedSlideSummary,
-  getGeneratedVisualSummary,
-  getSlideSectionLabel,
-  getSlideSectionKey,
-  usePreferences,
-} from "@/lib/preferences";
+import { getSlideSectionKey, usePreferences } from "@/lib/preferences";
 
 type SlideRailProps = {
   currentSlide: Slide;
@@ -31,30 +23,6 @@ type IndexedSlide = {
   slide: Slide;
 };
 
-function getRawImportedOutlinePreview(slide: Slide) {
-  const rawText = slide.extractedText.replace(/\s+/g, " ").trim();
-  const rawNotes = slide.speakerNotes.replace(/\s+/g, " ").trim();
-
-  if (rawText) {
-    return {
-      key: "rail.rawExcerpt" as const,
-      value: rawText,
-    };
-  }
-
-  if (rawNotes) {
-    return {
-      key: "rail.rawNotes" as const,
-      value: rawNotes,
-    };
-  }
-
-  return {
-    key: "rail.noReadableText" as const,
-    value: "",
-  };
-}
-
 export function SlideRail({ currentSlide, onSelect, onQueryChange, query, searchInputRef, slides }: SlideRailProps) {
   const { language, t } = usePreferences();
   const [viewMode, setViewMode] = useState<RailViewMode>("thumbnails");
@@ -62,49 +30,9 @@ export function SlideRail({ currentSlide, onSelect, onQueryChange, query, search
   const hasQuery = query.trim().length > 0;
   const indexedSlides = useMemo<IndexedSlide[]>(() => {
     return slides.map((slide) => {
-      const paddedPageNumber = String(slide.pageNumber).padStart(2, "0");
-
       return {
         slide,
-        searchText: [
-          String(slide.pageNumber),
-          paddedPageNumber,
-          formatSlideLabel(slide.pageNumber, language),
-          formatSlideLabel(slide.pageNumber, "zh"),
-          formatSlideLabel(slide.pageNumber, "en"),
-          slide.title,
-          getGeneratedSlideTitle(slide.title, slide.pageNumber, language),
-          getGeneratedSlideTitle(slide.title, slide.pageNumber, "zh"),
-          getGeneratedSlideTitle(slide.title, slide.pageNumber, "en"),
-          slide.section,
-          `section.${slide.section}`,
-          t(getSlideSectionKey(slide.section)),
-          getSlideSectionLabel(slide.section, "zh"),
-          getSlideSectionLabel(slide.section, "en"),
-          slide.kicker,
-          getGeneratedKickerLabel(slide.kicker, language),
-          getGeneratedKickerLabel(slide.kicker, "zh"),
-          getGeneratedKickerLabel(slide.kicker, "en"),
-          slide.summary,
-          getGeneratedSlideSummary(slide.summary, slide.pageNumber, language),
-          getGeneratedSlideSummary(slide.summary, slide.pageNumber, "zh"),
-          getGeneratedSlideSummary(slide.summary, slide.pageNumber, "en"),
-          slide.extractedText,
-          slide.visualSummary,
-          getGeneratedVisualSummary(slide.visualSummary, language),
-          getGeneratedVisualSummary(slide.visualSummary, "zh"),
-          getGeneratedVisualSummary(slide.visualSummary, "en"),
-          slide.speakerNotes,
-          slide.bullets.join(" "),
-          slide.metrics
-            .map(
-              (metric) =>
-                `${metric.label} ${getGeneratedMetricLabel(metric.label, language)} ${getGeneratedMetricLabel(metric.label, "zh")} ${getGeneratedMetricLabel(metric.label, "en")} ${metric.value}`,
-            )
-            .join(" "),
-        ]
-          .join(" ")
-          .toLowerCase(),
+        searchText: buildSlideSearchText(slide, { language, t }),
       };
     });
   }, [language, slides, t]);
@@ -227,12 +155,12 @@ export function SlideRail({ currentSlide, onSelect, onQueryChange, query, search
           <div className="space-y-2">
             {filteredSlides.map((slide, index) => {
               const active = slide.id === currentSlide.id;
-              const displayTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
+              const displayHeading = getSlideDisplayHeading(slide, language);
 
               return (
                 <motion.button
                   aria-current={active ? "true" : undefined}
-                  aria-label={`${formatSlideLabel(slide.pageNumber, language)} · ${displayTitle}`}
+                  aria-label={displayHeading}
                   className={cn(
                     "group w-full rounded-md border p-1.5 text-left transition",
                     active
@@ -247,9 +175,7 @@ export function SlideRail({ currentSlide, onSelect, onQueryChange, query, search
                   <SlideArt slide={slide} compact priority={index < 4} />
                   <div className="mt-2 flex min-w-0 items-center justify-between gap-2 px-0.5">
                     <div className="min-w-0">
-                      <div className="truncate text-xs font-medium">
-                        {formatSlideLabel(slide.pageNumber, language)} · {displayTitle}
-                      </div>
+                      <div className="truncate text-xs font-medium">{displayHeading}</div>
                     </div>
                     {active && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary/[0.76]" />}
                   </div>
@@ -282,16 +208,17 @@ export function SlideRail({ currentSlide, onSelect, onQueryChange, query, search
                 <div className="space-y-1">
                   {group.slides.map((slide) => {
                     const active = slide.id === currentSlide.id;
-                    const displayTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
-                    const importedPreview = slide.section === "imported" ? getRawImportedOutlinePreview(slide) : null;
+                    const displayTitle = getSlideDisplayTitle(slide, language);
+                    const displayHeading = getSlideDisplayHeading(slide, language);
+                    const importedPreview = slide.section === "imported" ? getImportedSlidePreview(slide) : null;
                     const summary = importedPreview
                       ? importedPreview.value || t(importedPreview.key)
-                      : getGeneratedSlideSummary(slide.summary, slide.pageNumber, language);
+                      : getSlideDisplaySummary(slide, language);
 
                     return (
                       <motion.button
                         aria-current={active ? "true" : undefined}
-                        aria-label={`${formatSlideLabel(slide.pageNumber, language)} · ${displayTitle}`}
+                        aria-label={displayHeading}
                         className={cn(
                           "group grid w-full grid-cols-[34px_minmax(0,1fr)] items-start gap-2 rounded-[5px] border px-2 py-1.5 text-left transition",
                           active

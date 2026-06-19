@@ -9,14 +9,11 @@ import {
   Plus,
 } from "lucide-react";
 import { Slide } from "@/lib/mock-data";
+import { getSlideAspectRatio, getSlideDisplayTitle } from "@/lib/slide-derived";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SlideArt } from "@/components/deck/slide-art";
-import {
-  formatSlideLabel,
-  getGeneratedSlideTitle,
-  usePreferences,
-} from "@/lib/preferences";
+import { formatSlideLabel, usePreferences } from "@/lib/preferences";
 
 type SlideStageProps = {
   hasNextSlide: boolean;
@@ -49,11 +46,11 @@ export function SlideStage({
   const zoomAtFit = Math.abs(zoom - 1) < 0.005;
   const zoomAtMin = zoom <= minZoom + 0.005;
   const zoomAtMax = zoom >= maxZoom - 0.005;
-  const displayTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
+  const displayTitle = getSlideDisplayTitle(slide, language);
   const speakerNotes = slide.speakerNotes.trim();
   const hasSpeakerNotes = speakerNotes.length > 0;
   const notesCopied = copiedNotesSlideId === slide.id;
-  const slideAspectRatio = slide.aspectRatio && slide.aspectRatio > 0 ? slide.aspectRatio : 16 / 10;
+  const slideAspectRatio = getSlideAspectRatio(slide);
   const fittedSlideSize = useMemo(() => {
     if (stageViewportSize.width <= 0 || stageViewportSize.height <= 0) {
       return null;

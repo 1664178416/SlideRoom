@@ -19,6 +19,7 @@ import { SlideArt } from "@/components/deck/slide-art";
 import { contextQualityLabelKeys, getContextQualityTone } from "@/lib/context-quality";
 import { readUploadedDeckSession } from "@/lib/deck-session";
 import { getSessionDeckTitle, normalizeDeckFileName } from "@/lib/deck-display";
+import { buildDeckProcessingHref, buildDeckWorkspaceHref } from "@/lib/deck-routes";
 import { getDeckSlides } from "@/lib/deck-slides";
 import { deckMeta } from "@/lib/mock-data";
 import { processingDurationMs, readProcessingSession, writeProcessingSession, type ProcessingSession } from "@/lib/processing-session";
@@ -33,12 +34,8 @@ import {
   buildFallbackUploadedDeckSession,
   fetchAndSyncUploadedDeckSession,
 } from "@/lib/uploaded-deck-session";
-import {
-  formatSlideLabel,
-  getGeneratedKickerLabel,
-  getGeneratedSlideTitle,
-  usePreferences,
-} from "@/lib/preferences";
+import { usePreferences } from "@/lib/preferences";
+import { getSlideDisplayHeading, getSlideDisplayKicker } from "@/lib/slide-derived";
 import { cn } from "@/lib/utils";
 
 const autoOpenDelayMs = 900;
@@ -102,20 +99,15 @@ export default function DeckProcessingPage() {
   const deckTitle = getSessionDeckTitle(fileName, deckMeta.fileName, deckMeta.title);
   const ready = progress >= 100;
   const processingHref = useMemo(() => {
-    const searchParams = new URLSearchParams({
+    return buildDeckProcessingHref({
+      deckId,
       fileName,
-      pageCount: String(pageCount),
-      startedAt: String(processingStartedAt || 0),
+      pageCount,
+      startedAt: processingStartedAt || 0,
     });
-
-    return `/deck/${deckId}/processing?${searchParams.toString()}`;
   }, [deckId, fileName, pageCount, processingStartedAt]);
   const workspaceHref = useMemo(() => {
-    if (fileName === deckMeta.fileName) return `/deck/${deckId}`;
-
-    const searchParams = new URLSearchParams({ fileName });
-
-    return `/deck/${deckId}?${searchParams.toString()}`;
+    return buildDeckWorkspaceHref(deckId, fileName);
   }, [deckId, fileName]);
 
   const activeStepIndex = useMemo(() => getActiveProcessingStepIndex(progress, ready), [progress, ready]);
@@ -397,7 +389,7 @@ export default function DeckProcessingPage() {
                       : index === readySlideCount
                         ? "processing"
                         : "queued";
-                  const slideTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
+                  const slideHeading = getSlideDisplayHeading(slide, language);
 
                   return (
                     <motion.div
@@ -409,11 +401,9 @@ export default function DeckProcessingPage() {
                       <SlideArt slide={slide} compact />
                       <div className="mt-2 flex items-center justify-between gap-2 px-0.5">
                         <div className="min-w-0">
-                          <div className="truncate text-xs font-semibold">
-                            {formatSlideLabel(slide.pageNumber, language)} · {slideTitle}
-                          </div>
+                          <div className="truncate text-xs font-semibold">{slideHeading}</div>
                           <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                            {getGeneratedKickerLabel(slide.kicker, language)}
+                            {getSlideDisplayKicker(slide, language)}
                           </div>
                         </div>
                         <span

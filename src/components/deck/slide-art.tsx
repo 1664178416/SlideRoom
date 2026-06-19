@@ -5,12 +5,16 @@ import { useState } from "react";
 import { FileText, ImageOff, StickyNote } from "lucide-react";
 import { Slide } from "@/lib/mock-data";
 import {
+  getSlideAspectRatio,
+  getSlideDisplayHeading,
+  getSlideDisplayKicker,
+  getSlideDisplayMetricLabel,
+  getSlideDisplaySummary,
+  getSlideDisplayTitle,
+  getSlideDisplayVisualSummary,
+} from "@/lib/slide-derived";
+import {
   formatSlideLabel,
-  getGeneratedKickerLabel,
-  getGeneratedMetricLabel,
-  getGeneratedSlideTitle,
-  getGeneratedSlideSummary,
-  getGeneratedVisualSummary,
   usePreferences,
 } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
@@ -38,10 +42,11 @@ export function SlideArt({ slide, compact = false, className, priority = false }
     !(failedRenderedImage?.slideId === slide.id && failedRenderedImage.url === candidateRenderedImageUrl)
       ? candidateRenderedImageUrl
       : undefined;
-  const renderedKicker = getGeneratedKickerLabel(slide.kicker, language);
-  const renderedTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
-  const renderedSummary = getGeneratedSlideSummary(slide.summary, slide.pageNumber, language);
-  const renderedVisualSummary = getGeneratedVisualSummary(slide.visualSummary, language);
+  const renderedKicker = getSlideDisplayKicker(slide, language);
+  const renderedTitle = getSlideDisplayTitle(slide, language);
+  const renderedSummary = getSlideDisplaySummary(slide, language);
+  const renderedVisualSummary = getSlideDisplayVisualSummary(slide, language);
+  const renderedHeading = getSlideDisplayHeading(slide, language);
   const displayBullets =
     slide.bullets.length > 0 ? slide.bullets : [renderedSummary || renderedVisualSummary];
   const displayMetrics =
@@ -55,10 +60,10 @@ export function SlideArt({ slide, compact = false, className, priority = false }
           },
         ];
   const isImportedSlide = slide.section === "imported";
-  const renderedAspectRatio = slide.aspectRatio && slide.aspectRatio > 0 ? slide.aspectRatio : 16 / 10;
+  const renderedAspectRatio = getSlideAspectRatio(slide);
   const renderedImageWidth = compact ? 480 : 1600;
   const renderedImageHeight = Math.max(1, Math.round(renderedImageWidth / renderedAspectRatio));
-  const getRenderedMetricLabel = (label: string) => getGeneratedMetricLabel(label, language);
+  const getRenderedMetricLabel = (label: string) => getSlideDisplayMetricLabel(label, language);
 
   if (renderedImageUrl) {
     return (
@@ -70,7 +75,7 @@ export function SlideArt({ slide, compact = false, className, priority = false }
         style={{ ["--slide-aspect-ratio" as string]: String(renderedAspectRatio) }}
       >
         <Image
-          alt={`${formatSlideLabel(slide.pageNumber, language)} · ${renderedTitle}`}
+          alt={renderedHeading}
           className="h-full w-full object-contain"
           draggable={false}
           fetchPriority={priority || !compact ? "high" : "auto"}
@@ -96,7 +101,7 @@ export function SlideArt({ slide, compact = false, className, priority = false }
 
     return (
       <div
-        aria-label={`${formatSlideLabel(slide.pageNumber, language)} · ${t("slideArt.previewUnavailable")}`}
+        aria-label={`${renderedHeading} · ${t("slideArt.previewUnavailable")}`}
         className={cn(
           "relative aspect-[16/10] overflow-hidden rounded-md border border-dashed border-stone-300 bg-[#fbfaf6] text-stone-950 shadow-sm",
           compact ? "p-2.5" : "p-5 sm:p-6",
