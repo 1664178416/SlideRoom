@@ -13,4 +13,6 @@ yarn-error.log*
 pnpm-debug.log*
 dev-server.log
 dev-server.err
+dev-3001.log
+dev-3001.err
 .slideroom/

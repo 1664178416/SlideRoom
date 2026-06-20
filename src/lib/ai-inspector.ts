@@ -1,15 +1,17 @@
 import { isDemoDeckId, Slide, slides } from "@/lib/mock-data";
 import {
+  getSlideDisplayLabel,
+  getSlideDisplayMetricsSummary,
+  getSlideDisplaySummary,
+  getSlideDisplayTitle,
+  getSlideDisplayVisualSummary,
+} from "@/lib/slide-derived";
+import {
   formatMarkdownCodeBlock,
   formatMarkdownInline,
   getMarkdownEmptyValue,
 } from "@/lib/markdown-export";
 import {
-  formatSlideLabel,
-  getGeneratedMetricLabel,
-  getGeneratedSlideTitle,
-  getGeneratedSlideSummary,
-  getGeneratedVisualSummary,
   getSlideSectionLabel,
   Language,
   TranslationKey,
@@ -392,11 +394,7 @@ function getContextSlides(slide: Slide, contextMode: ContextMode, deckSlides: Sl
 }
 
 function getContextSlideLabels(contextSlides: Slide[], language: Language) {
-  return contextSlides.map((contextSlide) => formatSlideLabel(contextSlide.pageNumber, language));
-}
-
-function getSlideDisplayTitle(slide: Slide, language: Language) {
-  return getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
+  return contextSlides.map((contextSlide) => getSlideDisplayLabel(contextSlide, language));
 }
 
 function formatSourceSlideLabels(contextSlides: Slide[], language: Language) {
@@ -418,7 +416,7 @@ function getContextOutline(contextSlides: Slide[], language: Language) {
   return contextSlides
     .map(
       (contextSlide) =>
-        `${formatSlideLabel(contextSlide.pageNumber, language)} · ${getSlideDisplayTitle(contextSlide, language)}: ${getGeneratedSlideSummary(contextSlide.summary, contextSlide.pageNumber, language)}`,
+        `${getSlideDisplayLabel(contextSlide, language)} · ${getSlideDisplayTitle(contextSlide, language)}: ${getSlideDisplaySummary(contextSlide, language)}`,
     )
     .join("\n");
 }
@@ -428,7 +426,7 @@ function getRawContextOutline(contextSlides: Slide[], language: Language) {
     .map((contextSlide) => {
       const rawContext = contextSlide.extractedText || contextSlide.speakerNotes || getSlideDisplayTitle(contextSlide, language);
 
-      return `${formatSlideLabel(contextSlide.pageNumber, language)}: ${clipPromptLine(rawContext, 118)}`;
+      return `${getSlideDisplayLabel(contextSlide, language)}: ${clipPromptLine(rawContext, 118)}`;
     })
     .join("\n");
 }
@@ -438,11 +436,11 @@ function getDeckSectionOutline(language: Language, deckSlides: Slide[]) {
     const group = items.find((item) => item.section === slide.section);
 
     if (group) {
-      group.slideTitles.push(`${formatSlideLabel(slide.pageNumber, language)} ${getSlideDisplayTitle(slide, language)}`);
+      group.slideTitles.push(`${getSlideDisplayLabel(slide, language)} ${getSlideDisplayTitle(slide, language)}`);
     } else {
       items.push({
         section: slide.section,
-        slideTitles: [`${formatSlideLabel(slide.pageNumber, language)} ${getSlideDisplayTitle(slide, language)}`],
+        slideTitles: [`${getSlideDisplayLabel(slide, language)} ${getSlideDisplayTitle(slide, language)}`],
       });
     }
 
@@ -468,15 +466,16 @@ function getContextNote({
   deckSlides: Slide[];
 }) {
   const sourceLabels = formatSourceSlideLabels(contextSlides, language);
+  const currentSlideLabel = getSlideDisplayLabel(slide, language);
   const isImportedSlide = slide.section === "imported";
 
   if (language === "zh") {
     if (contextMode === "current") {
       if (isImportedSlide) {
-        return `只使用 ${formatSlideLabel(slide.pageNumber, language)} 的本地提取文字和原始备注。`;
+        return `只使用 ${currentSlideLabel} 的本地提取文字和原始备注。`;
       }
 
-      return `只使用 ${formatSlideLabel(slide.pageNumber, language)} 的本地提取文字、讲者备注和页面摘要。`;
+      return `只使用 ${currentSlideLabel} 的本地提取文字、讲者备注和页面摘要。`;
     }
 
     if (contextMode === "nearby") {
@@ -488,18 +487,18 @@ function getContextNote({
     }
 
     if (isImportedSlide) {
-      return `参考全稿 ${deckSlides.length} 页的原始文字/备注速览，当前页细节仍以 ${formatSlideLabel(slide.pageNumber, language)} 为主。`;
+      return `参考全稿 ${deckSlides.length} 页的原始文字/备注速览，当前页细节仍以 ${currentSlideLabel} 为主。`;
     }
 
-    return `参考全稿 ${deckSlides.length} 页的标题/摘要大纲，当前页细节仍以 ${formatSlideLabel(slide.pageNumber, language)} 为主。`;
+    return `参考全稿 ${deckSlides.length} 页的标题/摘要大纲，当前页细节仍以 ${currentSlideLabel} 为主。`;
   }
 
   if (contextMode === "current") {
     if (isImportedSlide) {
-      return `Uses only ${formatSlideLabel(slide.pageNumber, language)}: locally extracted text and raw speaker notes.`;
+      return `Uses only ${currentSlideLabel}: locally extracted text and raw speaker notes.`;
     }
 
-    return `Uses only ${formatSlideLabel(slide.pageNumber, language)}: locally extracted text, speaker notes, and page summary.`;
+    return `Uses only ${currentSlideLabel}: locally extracted text, speaker notes, and page summary.`;
   }
 
   if (contextMode === "nearby") {
@@ -511,10 +510,10 @@ function getContextNote({
   }
 
   if (isImportedSlide) {
-    return `References raw text/notes skim from the ${deckSlides.length}-slide deck; details still come from ${formatSlideLabel(slide.pageNumber, language)}.`;
+    return `References raw text/notes skim from the ${deckSlides.length}-slide deck; details still come from ${currentSlideLabel}.`;
   }
 
-  return `References the ${deckSlides.length}-slide title/summary outline; details still come from ${formatSlideLabel(slide.pageNumber, language)}.`;
+  return `References the ${deckSlides.length}-slide title/summary outline; details still come from ${currentSlideLabel}.`;
 }
 
 function getAssistantResultTitle({
@@ -699,7 +698,7 @@ function buildModelAssistantResult({
   resultPrompt?: string;
   slide: Slide;
 }): AssistantResult | null {
-  const slideLabel = formatSlideLabel(slide.pageNumber, language);
+  const slideLabel = getSlideDisplayLabel(slide, language);
   const contextSlides = getContextSlides(slide, contextMode, deckSlides);
   const sourceSlideLabels = getContextSlideLabels(contextSlides, language);
   const contextNote = getContextNote({
@@ -1095,14 +1094,14 @@ export function buildPresetPrompt({
   const isImportedSlide = slide.section === "imported";
   const metrics =
     slide.metrics.length > 0
-      ? slide.metrics.map((metric) => `${getGeneratedMetricLabel(metric.label, language)}: ${metric.value}`).join("; ")
+      ? getSlideDisplayMetricsSummary(slide, language)
       : language === "zh"
         ? "暂无指标"
         : "No metrics";
   const bullets = slide.bullets.length > 0 ? slide.bullets.join("; ") : language === "zh" ? "暂无要点" : "No bullets";
-  const slideSummary = getGeneratedSlideSummary(slide.summary, slide.pageNumber, language);
+  const slideSummary = getSlideDisplaySummary(slide, language);
   const slideTitle = getSlideDisplayTitle(slide, language);
-  const slideVisualSummary = getGeneratedVisualSummary(slide.visualSummary, language);
+  const slideVisualSummary = getSlideDisplayVisualSummary(slide, language);
   const contextSlides = getContextSlides(slide, contextMode, deckSlides);
   const promptSourceSlides = formatPromptSourceSlides(contextMode, contextSlides, language);
   const contextNote = getContextNote({
@@ -1352,7 +1351,7 @@ export function getAssistantPromptForLanguage({
           language: candidateLanguage,
           sectionLabel: getSlideSectionLabel(slide.section, candidateLanguage),
           slide,
-          slideLabel: formatSlideLabel(slide.pageNumber, candidateLanguage),
+          slideLabel: getSlideDisplayLabel(slide, candidateLanguage),
         })
       );
     });
@@ -1366,7 +1365,7 @@ export function getAssistantPromptForLanguage({
     language,
     sectionLabel: getSlideSectionLabel(slide.section, language),
     slide,
-    slideLabel: formatSlideLabel(slide.pageNumber, language),
+    slideLabel: getSlideDisplayLabel(slide, language),
   });
 }
 

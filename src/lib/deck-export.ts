@@ -7,13 +7,9 @@ import {
   getMarkdownEmptyValue,
 } from "@/lib/markdown-export";
 import { deckMeta, type Slide } from "@/lib/mock-data";
+import { getSlideDisplayHeading } from "@/lib/slide-derived";
 import type { SlideContextStats } from "@/lib/upload-contract";
-import {
-  formatSlideLabel,
-  getGeneratedSlideTitle,
-  type Language,
-  type TranslationKey,
-} from "@/lib/preferences";
+import { type Language, type TranslationKey } from "@/lib/preferences";
 
 type BuildDeckMarkdownExportInput = {
   contextStats: SlideContextStats;
@@ -82,7 +78,6 @@ export function buildDeckMarkdownExport({
     `- ${t("export.aiContent")}: ${formatMarkdownInline(t("export.aiOnDemand"), emptyValue)}`,
     "",
     ...deckSlides.flatMap((slide) => {
-      const slideTitle = getGeneratedSlideTitle(slide.title, slide.pageNumber, language);
       const speakerNotes = slide.speakerNotes.trim();
       const extractedText = slide.extractedText.trim();
       const aiInsightLines = getPersistedAISlideExportLines({
@@ -121,7 +116,7 @@ export function buildDeckMarkdownExport({
       ];
 
       return [
-        `## ${formatSlideLabel(slide.pageNumber, language)} · ${formatMarkdownInline(slideTitle, emptyValue)}`,
+        `## ${formatMarkdownInline(getSlideDisplayHeading(slide, language), emptyValue)}`,
         "",
         ...rawContextLines,
         ...aiInsightLines,

@@ -9,11 +9,12 @@ import {
   Plus,
 } from "lucide-react";
 import { Slide } from "@/lib/mock-data";
-import { getSlideAspectRatio, getSlideDisplayTitle } from "@/lib/slide-derived";
+import { getSlideAspectRatio, getSlideDisplayLabel, getSlideDisplayTitle } from "@/lib/slide-derived";
+import { clampWorkspaceZoom, maxWorkspaceZoom, minWorkspaceZoom } from "@/lib/workspace-state";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SlideArt } from "@/components/deck/slide-art";
-import { formatSlideLabel, usePreferences } from "@/lib/preferences";
+import { usePreferences } from "@/lib/preferences";
 
 type SlideStageProps = {
   hasNextSlide: boolean;
@@ -26,9 +27,6 @@ type SlideStageProps = {
 };
 
 const maxSlideWidth = 1024;
-const minZoom = 0.78;
-const maxZoom = 1.14;
-
 export function SlideStage({
   hasNextSlide,
   hasPreviousSlide,
@@ -44,8 +42,9 @@ export function SlideStage({
   const [stageViewportSize, setStageViewportSize] = useState({ width: 0, height: 0 });
   const [copiedNotesSlideId, setCopiedNotesSlideId] = useState<string | null>(null);
   const zoomAtFit = Math.abs(zoom - 1) < 0.005;
-  const zoomAtMin = zoom <= minZoom + 0.005;
-  const zoomAtMax = zoom >= maxZoom - 0.005;
+  const zoomAtMin = zoom <= minWorkspaceZoom + 0.005;
+  const zoomAtMax = zoom >= maxWorkspaceZoom - 0.005;
+  const displayLabel = getSlideDisplayLabel(slide, language);
   const displayTitle = getSlideDisplayTitle(slide, language);
   const speakerNotes = slide.speakerNotes.trim();
   const hasSpeakerNotes = speakerNotes.length > 0;
@@ -126,7 +125,7 @@ export function SlideStage({
     <main className="glass-panel flex min-h-[560px] flex-col rounded-md sm:min-h-[640px] lg:h-full lg:min-h-0">
       <div className="flex min-h-14 shrink-0 flex-col items-stretch justify-center gap-2 border-b border-border/[0.72] px-3 py-2 sm:h-14 sm:flex-row sm:items-center sm:justify-between sm:py-0">
         <div className="flex min-w-0 items-center gap-2.5">
-          <Badge tone="accent">{formatSlideLabel(slide.pageNumber, language)}</Badge>
+          <Badge tone="accent">{displayLabel}</Badge>
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold">{displayTitle}</div>
           </div>
@@ -154,13 +153,13 @@ export function SlideStage({
             <ChevronRight className="h-4 w-4" />
           </Button>
           <span className="mx-0.5 h-4 w-px bg-border/70" aria-hidden="true" />
-          <Button aria-label={t("stage.zoomOut")} disabled={zoomAtMin} variant="ghost" size="icon" title={t("stage.zoomOut")} onClick={() => onZoomChange(Math.max(minZoom, zoom - 0.08))}>
+          <Button aria-label={t("stage.zoomOut")} disabled={zoomAtMin} variant="ghost" size="icon" title={t("stage.zoomOut")} onClick={() => onZoomChange(clampWorkspaceZoom(zoom - 0.08) ?? minWorkspaceZoom)}>
             <Minus className="h-4 w-4" />
           </Button>
           <div className="w-12 text-center text-xs tabular-nums text-muted-foreground">
             {Math.round(zoom * 100)}%
           </div>
-          <Button aria-label={t("stage.zoomIn")} disabled={zoomAtMax} variant="ghost" size="icon" title={t("stage.zoomIn")} onClick={() => onZoomChange(Math.min(maxZoom, zoom + 0.08))}>
+          <Button aria-label={t("stage.zoomIn")} disabled={zoomAtMax} variant="ghost" size="icon" title={t("stage.zoomIn")} onClick={() => onZoomChange(clampWorkspaceZoom(zoom + 0.08) ?? maxWorkspaceZoom)}>
             <Plus className="h-4 w-4" />
           </Button>
           <Button aria-label={t("stage.fit")} aria-pressed={zoomAtFit} disabled={zoomAtFit} variant="ghost" size="icon" title={t("stage.fit")} onClick={() => onZoomChange(1)}>

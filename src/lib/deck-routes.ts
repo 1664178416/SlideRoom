@@ -1,4 +1,4 @@
-import { getDeckFileStem, normalizeDeckFileName } from "@/lib/deck-display";
+import { normalizeDeckFileName } from "@/lib/deck-display";
 import { deckMeta } from "@/lib/mock-data";
 
 type BuildDeckProcessingHrefInput = {
@@ -31,8 +31,4 @@ export function buildDeckProcessingHref({
   });
 
   return `/deck/${deckId}/processing?${processingParams.toString()}`;
-}
-
-export function getDeckRouteStem(fileName: string, fallback = deckMeta.id) {
-  return getDeckFileStem(fileName, fallback);
 }

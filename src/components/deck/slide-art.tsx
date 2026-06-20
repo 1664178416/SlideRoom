@@ -6,6 +6,7 @@ import { FileText, ImageOff, StickyNote } from "lucide-react";
 import { Slide } from "@/lib/mock-data";
 import {
   getSlideAspectRatio,
+  getSlideDisplayLabel,
   getSlideDisplayHeading,
   getSlideDisplayKicker,
   getSlideDisplayMetricLabel,
@@ -13,10 +14,7 @@ import {
   getSlideDisplayTitle,
   getSlideDisplayVisualSummary,
 } from "@/lib/slide-derived";
-import {
-  formatSlideLabel,
-  usePreferences,
-} from "@/lib/preferences";
+import { usePreferences } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
 
 const toneClass = {
@@ -43,6 +41,7 @@ export function SlideArt({ slide, compact = false, className, priority = false }
       ? candidateRenderedImageUrl
       : undefined;
   const renderedKicker = getSlideDisplayKicker(slide, language);
+  const renderedLabel = getSlideDisplayLabel(slide, language);
   const renderedTitle = getSlideDisplayTitle(slide, language);
   const renderedSummary = getSlideDisplaySummary(slide, language);
   const renderedVisualSummary = getSlideDisplayVisualSummary(slide, language);
@@ -117,7 +116,7 @@ export function SlideArt({ slide, compact = false, className, priority = false }
               compact ? "text-[6px]" : "text-[11px]",
             )}
           >
-            <span className="truncate">{formatSlideLabel(slide.pageNumber, language)}</span>
+            <span className="truncate">{renderedLabel}</span>
             <span
               className={cn(
                 "shrink-0 rounded border border-stone-200 bg-white/70 text-stone-500",

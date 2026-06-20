@@ -24,7 +24,8 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { formatSlideLabel, getSlideSectionKey, TranslationKey, usePreferences } from "@/lib/preferences";
+import { getSlideDisplayLabel } from "@/lib/slide-derived";
+import { getSlideSectionKey, TranslationKey, usePreferences } from "@/lib/preferences";
 import { generateAIResponse } from "@/lib/ai-provider-client";
 import {
   aiProviderConfigChangeEvent,
@@ -919,7 +920,7 @@ function getSavedProviderConfiguredSnapshot() {
 
 export function AIInspector({ deckId, deckSlides, slide }: AIInspectorProps) {
   const { language, t } = usePreferences();
-  const slideLabel = formatSlideLabel(slide.pageNumber, language);
+  const slideLabel = getSlideDisplayLabel(slide, language);
   const sectionLabel = t(getSlideSectionKey(slide.section));
   const [contextMode, setContextMode] = useState<ContextMode>("current");
   const [draftsBySlideId, setDraftsBySlideId] = useState<Record<string, string>>({});

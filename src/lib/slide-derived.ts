@@ -29,6 +29,10 @@ export function getSlideDisplayMetricLabel(label: string, language: Language) {
   return getGeneratedMetricLabel(label, language);
 }
 
+export function getSlideDisplayMetricsSummary(slide: Pick<Slide, "metrics">, language: Language) {
+  return slide.metrics.map((metric) => `${getSlideDisplayMetricLabel(metric.label, language)}: ${metric.value}`).join("; ");
+}
+
 export function getSlideDisplayLabel(slide: Slide, language: Language) {
   return formatSlideLabel(slide.pageNumber, language);
 }

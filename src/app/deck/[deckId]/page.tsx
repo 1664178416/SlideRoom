@@ -14,9 +14,17 @@ import { getSessionDeckTitle, normalizeDeckFileName } from "@/lib/deck-display";
 import { buildDeckMarkdownExport, getDeckMarkdownFileName } from "@/lib/deck-export";
 import { buildDeckProcessingHref } from "@/lib/deck-routes";
 import { getDeckSlides } from "@/lib/deck-slides";
-import { deckMeta, isDemoDeckId, type Slide } from "@/lib/mock-data";
+import { deckMeta, isDemoDeckId } from "@/lib/mock-data";
 import { readProcessingSession, writeProcessingSession, type ProcessingSession } from "@/lib/processing-session";
 import { upsertRecentDeck } from "@/lib/recent-decks";
+import {
+  clampWorkspaceZoom,
+  defaultWorkspaceInspectorOpen,
+  defaultWorkspaceRailOpen,
+  defaultWorkspaceZoom,
+  readWorkspaceState,
+  writeWorkspaceState,
+} from "@/lib/workspace-state";
 import {
   getUploadDeckFileErrorCode,
   getDeckContextQuality,
@@ -31,14 +39,6 @@ import {
 import { type TranslationKey, usePreferences } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
 
-type WorkspaceState = {
-  currentSlideId?: string;
-  inspectorOpen?: boolean;
-  railOpen?: boolean;
-  zoom?: number;
-};
-
-const workspaceStorageKey = "slideroom-workspace-state-v2";
 const completedProcessingStartedAtOffsetMs = 3600;
 const slideWheelThreshold = 42;
 const slideWheelResetMs = 220;
@@ -56,51 +56,6 @@ const uploadErrorMessageKeys: Record<UploadDeckErrorCode, TranslationKey> = {
 
 function getClientTimestamp() {
   return Date.now();
-}
-
-function getWorkspaceStorageKey(deckId: string) {
-  return `${workspaceStorageKey}:${deckId}`;
-}
-
-function hasSlide(deckSlides: Slide[], slideId?: string) {
-  return Boolean(slideId && deckSlides.some((slide) => slide.id === slideId));
-}
-
-function readWorkspaceState(deckId: string, deckSlides: Slide[]): WorkspaceState {
-  if (typeof window === "undefined") return {};
-
-  try {
-    const storedState = window.localStorage.getItem(getWorkspaceStorageKey(deckId));
-    if (!storedState) return {};
-
-    const parsedState = JSON.parse(storedState) as WorkspaceState;
-    return {
-      currentSlideId: hasSlide(deckSlides, parsedState.currentSlideId) ? parsedState.currentSlideId : undefined,
-      inspectorOpen: typeof parsedState.inspectorOpen === "boolean" ? parsedState.inspectorOpen : undefined,
-      railOpen: typeof parsedState.railOpen === "boolean" ? parsedState.railOpen : undefined,
-      zoom: typeof parsedState.zoom === "number" ? Math.min(1.14, Math.max(0.78, parsedState.zoom)) : undefined,
-    };
-  } catch {
-    return {};
-  }
-}
-
-function writeWorkspaceState(deckId: string, deckSlides: Slide[], state: WorkspaceState) {
-  if (typeof window === "undefined") return;
-
-  try {
-    window.localStorage.setItem(
-      getWorkspaceStorageKey(deckId),
-      JSON.stringify({
-        currentSlideId: hasSlide(deckSlides, state.currentSlideId) ? state.currentSlideId : undefined,
-        inspectorOpen: typeof state.inspectorOpen === "boolean" ? state.inspectorOpen : undefined,
-        railOpen: typeof state.railOpen === "boolean" ? state.railOpen : undefined,
-        zoom: typeof state.zoom === "number" ? Math.min(1.14, Math.max(0.78, state.zoom)) : undefined,
-      } satisfies WorkspaceState),
-    );
-  } catch {
-    // Storage can fail in private mode or when quota is exhausted.
-  }
 }
 
 function normalizeWheelDelta(delta: number, deltaMode: number) {
@@ -199,14 +154,14 @@ export default function DeckWorkspacePage() {
   );
   const deckTitle = getSessionDeckTitle(deckFileName, deckMeta.fileName, deckMeta.title);
   const [currentSlideId, setCurrentSlideId] = useState<string | undefined>();
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(defaultWorkspaceZoom);
   const [railQuery, setRailQuery] = useState("");
   const [aiSettingsOpen, setAISettingsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [exportReady, setExportReady] = useState(false);
-  const [railOpen, setRailOpen] = useState(true);
-  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [railOpen, setRailOpen] = useState(defaultWorkspaceRailOpen);
+  const [inspectorOpen, setInspectorOpen] = useState(defaultWorkspaceInspectorOpen);
   const [workspaceUploadBusy, setWorkspaceUploadBusy] = useState(false);
   const [workspaceUploadErrorCode, setWorkspaceUploadErrorCode] = useState<UploadDeckErrorCode | null>(null);
   const [sessionRestoreCheckedDeckId, setSessionRestoreCheckedDeckId] = useState(isDemoDeckId(deckId) ? deckId : "");
@@ -326,9 +281,9 @@ export default function DeckWorkspacePage() {
       const restoredState = readWorkspaceState(deckId, deckSlides);
 
       setCurrentSlideId(restoredState.currentSlideId ?? deckSlides[0]?.id);
-      if (typeof restoredState.zoom === "number") setZoom(restoredState.zoom);
-      if (typeof restoredState.railOpen === "boolean") setRailOpen(restoredState.railOpen);
-      if (typeof restoredState.inspectorOpen === "boolean") setInspectorOpen(restoredState.inspectorOpen);
+      setZoom(restoredState.zoom ?? defaultWorkspaceZoom);
+      setRailOpen(restoredState.railOpen ?? defaultWorkspaceRailOpen);
+      setInspectorOpen(restoredState.inspectorOpen ?? defaultWorkspaceInspectorOpen);
 
       setRestoredWorkspaceKey(deckStateKey);
     }, 0);
@@ -844,7 +799,7 @@ export default function DeckWorkspacePage() {
             onPreviousSlide={() => selectSlideByIndex(Math.max(0, currentSlideIndex - 1))}
             slide={currentSlide}
             zoom={zoom}
-            onZoomChange={setZoom}
+            onZoomChange={(nextZoom) => setZoom(clampWorkspaceZoom(nextZoom) ?? defaultWorkspaceZoom)}
           />
         </div>
         <div
