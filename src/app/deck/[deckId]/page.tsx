@@ -716,6 +716,7 @@ export default function DeckWorkspacePage() {
         deckTitle={deckTitle}
         exportReady={exportReady}
         inspectorOpen={inspectorOpen}
+        onBackHome={() => router.push("/")}
         onCloseAISettings={() => setAISettingsOpen(false)}
         onCloseSettings={() => setSettingsOpen(false)}
         onExport={exportDeck}

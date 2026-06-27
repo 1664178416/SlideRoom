@@ -10,6 +10,7 @@ import {
   Eye,
   EyeOff,
   FileText,
+  House,
   KeyRound,
   Link2,
   Loader2,
@@ -53,6 +54,7 @@ type TopBarProps = {
   railOpen: boolean;
   settingsOpen: boolean;
   uploadBusy?: boolean;
+  onBackHome: () => void;
   onExport: () => void;
   onCloseAISettings: () => void;
   onCloseSettings: () => void;
@@ -96,6 +98,7 @@ export function TopBar({
   inspectorOpen,
   onCloseAISettings,
   onCloseSettings,
+  onBackHome,
   onExport,
   onOpenCommandMenu,
   onUploadClick,
@@ -281,6 +284,17 @@ export function TopBar({
         onClick={(event) => event.stopPropagation()}
         ref={controlsRef}
       >
+        <Button
+          aria-label={t("workspace.backHome")}
+          data-workspace-back-home="true"
+          onClick={onBackHome}
+          size="icon"
+          title={t("workspace.backHome")}
+          type="button"
+          variant="ghost"
+        >
+          <House className="h-4 w-4" />
+        </Button>
         <div className="flex items-center gap-1 rounded-md border border-border bg-background/[0.44] p-1 dark:bg-background/[0.14]">
           <Button
             aria-label={railLabel}
