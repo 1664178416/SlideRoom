@@ -140,16 +140,19 @@ export default function DeckProcessingPage() {
   useEffect(() => {
     if (routeProcessingSession) {
       writeProcessingSession(routeProcessingSession);
-      upsertRecentDeck({
-        contextQuality,
-        deckId: routeProcessingSession.deckId,
-        fileName: routeProcessingSession.fileName,
-        openedAt: routeProcessingSession.startedAt,
-        speakerNotesSlideCount: contextStats.speakerNotesSlideCount,
-        slideCount: routeProcessingSession.pageCount ?? pageCount,
-        status: "processing",
-        textSlideCount: contextStats.textSlideCount,
-      });
+      upsertRecentDeck(
+        {
+          deckId: routeProcessingSession.deckId,
+          fileName: routeProcessingSession.fileName,
+          openedAt: routeProcessingSession.startedAt,
+          slideCount: routeProcessingSession.pageCount ?? pageCount,
+          status: "processing",
+        },
+        {
+          contextQuality,
+          contextStats,
+        },
+      );
 
       if (window.location.pathname + window.location.search !== processingHref) {
         router.replace(processingHref, { scroll: false });
@@ -158,16 +161,19 @@ export default function DeckProcessingPage() {
   }, [contextQuality, contextStats, pageCount, processingHref, routeProcessingSession, router]);
 
   useEffect(() => {
-    upsertRecentDeck({
-      contextQuality,
-      deckId,
-      fileName,
-      openedAt: processingStartedAt,
-      speakerNotesSlideCount: contextStats.speakerNotesSlideCount,
-      slideCount: pageCount,
-      status: ready ? "ready" : "processing",
-      textSlideCount: contextStats.textSlideCount,
-    });
+    upsertRecentDeck(
+      {
+        deckId,
+        fileName,
+        openedAt: processingStartedAt,
+        slideCount: pageCount,
+        status: ready ? "ready" : "processing",
+      },
+      {
+        contextQuality,
+        contextStats,
+      },
+    );
   }, [contextQuality, contextStats, deckId, fileName, pageCount, processingStartedAt, ready]);
 
   useEffect(() => {
@@ -193,16 +199,19 @@ export default function DeckProcessingPage() {
     if (!ready) return;
 
     autoOpenTimerRef.current = window.setTimeout(() => {
-      upsertRecentDeck({
-        contextQuality,
-        deckId,
-        fileName,
-        openedAt: Date.now(),
-        speakerNotesSlideCount: contextStats.speakerNotesSlideCount,
-        slideCount: pageCount,
-        status: "ready",
-        textSlideCount: contextStats.textSlideCount,
-      });
+      upsertRecentDeck(
+        {
+          deckId,
+          fileName,
+          openedAt: Date.now(),
+          slideCount: pageCount,
+          status: "ready",
+        },
+        {
+          contextQuality,
+          contextStats,
+        },
+      );
       router.push(workspaceHref);
     }, autoOpenDelayMs);
 
@@ -220,16 +229,19 @@ export default function DeckProcessingPage() {
       autoOpenTimerRef.current = null;
     }
 
-    upsertRecentDeck({
-      contextQuality,
-      deckId,
-      fileName,
-      openedAt: Date.now(),
-      speakerNotesSlideCount: contextStats.speakerNotesSlideCount,
-      slideCount: pageCount,
-      status: "ready",
-      textSlideCount: contextStats.textSlideCount,
-    });
+    upsertRecentDeck(
+      {
+        deckId,
+        fileName,
+        openedAt: Date.now(),
+        slideCount: pageCount,
+        status: "ready",
+      },
+      {
+        contextQuality,
+        contextStats,
+      },
+    );
 
     router.push(workspaceHref);
   }

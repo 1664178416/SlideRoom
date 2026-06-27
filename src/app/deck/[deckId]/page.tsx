@@ -241,16 +241,19 @@ export default function DeckWorkspacePage() {
   useEffect(() => {
     if (workspaceSessionHydrating) return;
 
-    upsertRecentDeck({
-      contextQuality,
-      deckId,
-      fileName: deckFileName,
-      openedAt: getClientTimestamp(),
-      speakerNotesSlideCount: contextStats.speakerNotesSlideCount,
-      slideCount: pageCount,
-      status: "ready",
-      textSlideCount: contextStats.textSlideCount,
-    });
+    upsertRecentDeck(
+      {
+        deckId,
+        fileName: deckFileName,
+        openedAt: getClientTimestamp(),
+        slideCount: pageCount,
+        status: "ready",
+      },
+      {
+        contextQuality,
+        contextStats,
+      },
+    );
   }, [contextQuality, contextStats, deckFileName, deckId, pageCount, workspaceSessionHydrating]);
 
   useEffect(() => {
