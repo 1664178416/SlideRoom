@@ -1,5 +1,11 @@
 import { normalizeDeckFileName } from "@/lib/deck-display";
-import type { DeckContextQuality } from "@/lib/upload-contract";
+import {
+  getDeckContextQuality,
+  getSlideContextStats,
+  type DeckContextQuality,
+  type DeckInspectionStatus,
+  type SlideContextStats,
+} from "@/lib/upload-contract";
 
 export type RecentDeckStatus = "processing" | "ready";
 
@@ -25,6 +31,19 @@ type RecentDeckInput = {
   textSlideCount?: number;
 };
 
+type RecentDeckContextSlide = {
+  extractedText?: string;
+  speakerNotes?: string;
+};
+
+export type RecentDeckContextSource = {
+  contextQuality?: DeckContextQuality;
+  contextStats?: SlideContextStats;
+  inspectionStatus?: DeckInspectionStatus | null;
+  pageCount?: number;
+  slides?: RecentDeckContextSlide[];
+};
+
 const recentDecksStorageKey = "slideroom-recent-decks-v1";
 const maxRecentDecks = 6;
 
@@ -34,6 +53,45 @@ function isDeckContextQuality(value: unknown): value is DeckContextQuality {
 
 function sanitizeSlideCount(value: unknown, fallback = 0) {
   return Math.max(0, Math.round(typeof value === "number" && Number.isFinite(value) ? value : fallback));
+}
+
+function getResolvedRecentDeckContextQuality(source: RecentDeckContextSource) {
+  if (source.contextQuality) return source.contextQuality;
+  if (!source.slides) return undefined;
+
+  return getDeckContextQuality({
+    inspectionStatus: source.inspectionStatus,
+    pageCount: Math.max(1, sanitizeSlideCount(source.pageCount, source.slides.length || 1)),
+    slides: source.slides,
+  });
+}
+
+export function getRecentDeckContextStats(
+  recentDeck: Pick<RecentDeck, "speakerNotesSlideCount" | "textSlideCount">,
+): SlideContextStats | undefined {
+  if (recentDeck.textSlideCount === undefined && recentDeck.speakerNotesSlideCount === undefined) return undefined;
+
+  return {
+    speakerNotesSlideCount: recentDeck.speakerNotesSlideCount ?? 0,
+    textSlideCount: recentDeck.textSlideCount ?? 0,
+  };
+}
+
+export function getRecentDeckContextFields(source?: RecentDeckContextSource): RecentDeckInput {
+  if (!source) return {};
+
+  const contextQuality = getResolvedRecentDeckContextQuality(source);
+  const contextStats = source.contextStats ?? (source.slides ? getSlideContextStats(source.slides) : undefined);
+
+  return {
+    ...(contextQuality ? { contextQuality } : {}),
+    ...(contextStats
+      ? {
+          speakerNotesSlideCount: contextStats.speakerNotesSlideCount,
+          textSlideCount: contextStats.textSlideCount,
+        }
+      : {}),
+  };
 }
 
 function getRecentDeckKey(deck: Pick<RecentDeck, "deckId" | "fileName">) {
@@ -137,10 +195,13 @@ export function readRecentDecks() {
   }
 }
 
-export function upsertRecentDeck(deck: RecentDeckInput) {
+export function upsertRecentDeck(deck: RecentDeckInput, contextSource?: RecentDeckContextSource) {
   if (typeof window === "undefined") return null;
 
-  const sanitizedDeck = sanitizeRecentDeck(deck);
+  const sanitizedDeck = sanitizeRecentDeck({
+    ...getRecentDeckContextFields(contextSource),
+    ...deck,
+  });
   if (!sanitizedDeck) return null;
 
   const nextDecks = normalizeRecentDecks([

@@ -30,14 +30,20 @@ import { deckMeta, slides } from "@/lib/mock-data";
 import { getDeckDisplayTitle, normalizeDeckFileName } from "@/lib/deck-display";
 import { clearProcessingSession, isProcessingComplete, processingDurationMs, writeProcessingSession } from "@/lib/processing-session";
 import { getVisibleProcessingSteps } from "@/lib/processing-steps";
-import { clearRecentDecks, readRecentDecks, upsertRecentDeck, type RecentDeck, type RecentDeckStatus } from "@/lib/recent-decks";
+import {
+  clearRecentDecks,
+  getRecentDeckContextStats,
+  readRecentDecks,
+  upsertRecentDeck,
+  type RecentDeck,
+  type RecentDeckContextSource,
+  type RecentDeckStatus,
+} from "@/lib/recent-decks";
 import {
   getUploadDeckFileErrorCode,
   getDeckContextQuality,
   getSlideContextStats,
-  type DeckContextQuality,
   type DeckInspectionStatus,
-  type SlideContextStats,
   type UploadDeckErrorCode,
 } from "@/lib/upload-contract";
 import { Language, type TranslationKey, usePreferences } from "@/lib/preferences";
@@ -67,11 +73,6 @@ const demoRecentDeck: RecentDeck = {
   textSlideCount: demoContextStats.textSlideCount,
 };
 
-type RecentDeckContextMeta = {
-  contextQuality?: DeckContextQuality;
-  contextStats?: SlideContextStats;
-};
-
 function getClientTimestamp() {
   return Date.now();
 }
@@ -87,15 +88,6 @@ function getResolvedRecentDeckStatus(recentDeck: RecentDeck, currentTimestamp: n
   }
 
   return recentDeck.status;
-}
-
-function getRecentDeckContextStats(recentDeck: RecentDeck): SlideContextStats | undefined {
-  if (recentDeck.textSlideCount === undefined && recentDeck.speakerNotesSlideCount === undefined) return undefined;
-
-  return {
-    speakerNotesSlideCount: recentDeck.speakerNotesSlideCount ?? 0,
-    textSlideCount: recentDeck.textSlideCount ?? 0,
-  };
 }
 
 function formatRecentOpenedAt(openedAt: number, currentTimestamp: number, language: Language, fallbackLabel: string) {
@@ -231,25 +223,23 @@ export default function HomePage() {
     openedAt?: number,
     deckId = deckMeta.id,
     slideCount = deckMeta.pageCount,
-    contextMeta?: RecentDeckContextMeta,
+    contextMeta?: RecentDeckContextSource,
   ) {
     const openedAtTimestamp = openedAt ?? getClientTimestamp();
-    const resolvedContextQuality = contextMeta ? contextMeta.contextQuality : contextQuality;
-    const resolvedContextStats = contextMeta ? contextMeta.contextStats : contextStats;
-    const recentDeck = upsertRecentDeck({
-      ...(resolvedContextQuality ? { contextQuality: resolvedContextQuality } : {}),
-      deckId,
-      fileName,
-      openedAt: openedAtTimestamp,
-      ...(resolvedContextStats
-        ? {
-            speakerNotesSlideCount: resolvedContextStats.speakerNotesSlideCount,
-            textSlideCount: resolvedContextStats.textSlideCount,
-          }
-        : {}),
-      slideCount,
-      status,
-    });
+    const recentDeck = upsertRecentDeck(
+      {
+        deckId,
+        fileName,
+        openedAt: openedAtTimestamp,
+        slideCount,
+        status,
+      },
+      contextMeta ?? {
+        contextQuality,
+        contextStats,
+        pageCount: slideCount,
+      },
+    );
 
     if (recentDeck) refreshRecentDecks();
     return recentDeck;
@@ -262,7 +252,7 @@ export default function HomePage() {
     startedAt,
     contextMeta,
   }: {
-    contextMeta?: RecentDeckContextMeta;
+    contextMeta?: RecentDeckContextSource;
     deckId: string;
     fileName: string;
     pageCount?: number;
@@ -306,8 +296,9 @@ export default function HomePage() {
     setActiveSlideCount(deckMeta.pageCount);
     setPreviewSlides(slides);
     recordRecentDeck(deckMeta.fileName, "ready", undefined, deckMeta.id, deckMeta.pageCount, {
-      contextQuality: "parsed",
-      contextStats: demoContextStats,
+      inspectionStatus: "parsed",
+      pageCount: deckMeta.pageCount,
+      slides,
     });
     router.push(`/deck/${deckMeta.id}`);
   }
@@ -451,12 +442,6 @@ export default function HomePage() {
       if (uploadRequestId !== uploadRequestIdRef.current) return;
       const uploadedSlides = getDeckSlides(storedDeckSession);
       const uploadedPageCount = Math.max(1, storedDeckSession.pageCount || uploadedSlides.length);
-      const uploadedContextStats = getSlideContextStats(uploadedSlides);
-      const uploadedContextQuality = getDeckContextQuality({
-        inspectionStatus: storedDeckSession.inspectionStatus,
-        pageCount: uploadedPageCount,
-        slides: uploadedSlides,
-      });
 
       setActiveInspectionStatus(storedDeckSession.inspectionStatus);
       setPreviewSlides(uploadedSlides);
@@ -464,8 +449,9 @@ export default function HomePage() {
 
       beginProcessingSession({
         contextMeta: {
-          contextQuality: uploadedContextQuality,
-          contextStats: uploadedContextStats,
+          inspectionStatus: storedDeckSession.inspectionStatus,
+          pageCount: uploadedPageCount,
+          slides: uploadedSlides,
         },
         deckId: storedDeckSession.deckId,
         fileName: storedDeckSession.fileName,
