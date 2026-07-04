@@ -3,9 +3,9 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { renderDeckToImages } from "@/lib/ppt-renderer";
 import {
+  isUploadedDeckSession,
   type ReadDeckResponse,
   type UploadedDeckSession,
-  type UploadedSlideContext,
 } from "@/lib/upload-contract";
 
 export const runtime = "nodejs";
@@ -13,54 +13,6 @@ export const runtime = "nodejs";
 const uploadRootDirectory = path.join(process.cwd(), ".slideroom", "uploads");
 const deckIdPattern = /^deck-[a-f0-9]{8}$/i;
 const renderRetryCooldownMs = 5 * 60 * 1000;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isUploadedSlideContext(value: unknown): value is UploadedSlideContext {
-  if (!isRecord(value)) return false;
-
-  return (
-    typeof value.pageNumber === "number" &&
-    Number.isFinite(value.pageNumber) &&
-    value.pageNumber >= 1 &&
-    typeof value.extractedText === "string" &&
-    (typeof value.imageUrl === "undefined" || typeof value.imageUrl === "string") &&
-    (typeof value.thumbnailUrl === "undefined" || typeof value.thumbnailUrl === "string") &&
-    (typeof value.aspectRatio === "undefined" ||
-      (typeof value.aspectRatio === "number" && Number.isFinite(value.aspectRatio) && value.aspectRatio > 0)) &&
-    typeof value.speakerNotes === "string"
-  );
-}
-
-function isUploadedDeckSession(value: unknown, deckId: string): value is UploadedDeckSession {
-  if (!isRecord(value)) return false;
-
-  return (
-    value.deckId === deckId &&
-    typeof value.fileName === "string" &&
-    typeof value.originalFileName === "string" &&
-    typeof value.pageCount === "number" &&
-    Number.isFinite(value.pageCount) &&
-    value.pageCount >= 1 &&
-    (typeof value.renderAttemptedAt === "undefined" ||
-      (typeof value.renderAttemptedAt === "number" && Number.isFinite(value.renderAttemptedAt) && value.renderAttemptedAt >= 0)) &&
-    Array.isArray(value.slides) &&
-    value.slides.every(isUploadedSlideContext) &&
-    typeof value.size === "number" &&
-    Number.isFinite(value.size) &&
-    (typeof value.renderStatus === "undefined" ||
-      value.renderStatus === "rendered" ||
-      value.renderStatus === "unavailable" ||
-      value.renderStatus === "failed") &&
-    value.status === "uploaded" &&
-    typeof value.storageKey === "string" &&
-    typeof value.uploadedAt === "number" &&
-    Number.isFinite(value.uploadedAt) &&
-    (value.inspectionStatus === "parsed" || value.inspectionStatus === "unsupported" || value.inspectionStatus === "failed")
-  );
-}
 
 function hasRenderedSlideImages(session: UploadedDeckSession) {
   return session.slides.some((slide) => typeof slide.imageUrl === "string" && slide.imageUrl.trim().length > 0);
@@ -173,7 +125,7 @@ export async function GET(
     const metadataPath = path.join(deckDirectory, "metadata.json");
     const metadata = JSON.parse(await readFile(metadataPath, "utf8")) as unknown;
 
-    if (!isUploadedDeckSession(metadata, deckId)) {
+    if (!isUploadedDeckSession(metadata) || metadata.deckId !== deckId) {
       return deckError("Deck metadata is invalid.", 422);
     }
 

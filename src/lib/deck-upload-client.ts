@@ -1,5 +1,6 @@
 import { syncUploadedDeckSession } from "@/lib/deck-session";
 import {
+  isUploadedDeckSession,
   type UploadDeckErrorCode,
   type UploadDeckResponse,
   type UploadedDeckSession,
@@ -32,26 +33,6 @@ function isUploadDeckErrorCode(value: unknown): value is UploadDeckErrorCode {
     value === "empty_file" ||
     value === "file_too_large" ||
     value === "upload_failed"
-  );
-}
-
-function isDeckInspectionStatus(value: unknown) {
-  return value === "parsed" || value === "unsupported" || value === "failed";
-}
-
-function isUploadedDeckSession(value: unknown): value is UploadedDeckSession {
-  return (
-    isRecord(value) &&
-    typeof value.deckId === "string" &&
-    typeof value.fileName === "string" &&
-    isDeckInspectionStatus(value.inspectionStatus) &&
-    typeof value.originalFileName === "string" &&
-    typeof value.pageCount === "number" &&
-    Array.isArray(value.slides) &&
-    typeof value.size === "number" &&
-    value.status === "uploaded" &&
-    typeof value.storageKey === "string" &&
-    typeof value.uploadedAt === "number"
   );
 }
 

@@ -65,6 +65,56 @@ export type ReadDeckResponse =
       ok: false;
     };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isDeckInspectionStatus(value: unknown): value is DeckInspectionStatus {
+  return value === "parsed" || value === "unsupported" || value === "failed";
+}
+
+function isUploadedSlideContext(value: unknown): value is UploadedSlideContext {
+  return (
+    isRecord(value) &&
+    typeof value.pageNumber === "number" &&
+    Number.isFinite(value.pageNumber) &&
+    value.pageNumber >= 1 &&
+    typeof value.extractedText === "string" &&
+    (typeof value.imageUrl === "undefined" || typeof value.imageUrl === "string") &&
+    (typeof value.thumbnailUrl === "undefined" || typeof value.thumbnailUrl === "string") &&
+    (typeof value.aspectRatio === "undefined" ||
+      (typeof value.aspectRatio === "number" && Number.isFinite(value.aspectRatio) && value.aspectRatio > 0)) &&
+    typeof value.speakerNotes === "string"
+  );
+}
+
+export function isUploadedDeckSession(value: unknown): value is UploadedDeckSession {
+  return (
+    isRecord(value) &&
+    typeof value.deckId === "string" &&
+    typeof value.fileName === "string" &&
+    isDeckInspectionStatus(value.inspectionStatus) &&
+    typeof value.originalFileName === "string" &&
+    typeof value.pageCount === "number" &&
+    Number.isFinite(value.pageCount) &&
+    value.pageCount >= 1 &&
+    (typeof value.renderAttemptedAt === "undefined" ||
+      (typeof value.renderAttemptedAt === "number" && Number.isFinite(value.renderAttemptedAt) && value.renderAttemptedAt >= 0)) &&
+    (typeof value.renderStatus === "undefined" ||
+      value.renderStatus === "rendered" ||
+      value.renderStatus === "unavailable" ||
+      value.renderStatus === "failed") &&
+    Array.isArray(value.slides) &&
+    value.slides.every(isUploadedSlideContext) &&
+    typeof value.size === "number" &&
+    Number.isFinite(value.size) &&
+    value.status === "uploaded" &&
+    typeof value.storageKey === "string" &&
+    typeof value.uploadedAt === "number" &&
+    Number.isFinite(value.uploadedAt)
+  );
+}
+
 export function isSupportedDeckFileName(fileName: string) {
   const normalizedName = fileName.toLowerCase();
 
