@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   Bot,
@@ -70,11 +70,7 @@ function getCommandShortcutLabel() {
   if (typeof window === "undefined") return "Ctrl K";
 
   const platformText = `${window.navigator.platform} ${window.navigator.userAgent}`.toLowerCase();
-  return /mac|iphone|ipad|ipod/.test(platformText) ? "⌘K" : "Ctrl K";
-}
-
-function subscribeCommandShortcut() {
-  return () => {};
+  return /mac|iphone|ipad|ipod/.test(platformText) ? "Cmd K" : "Ctrl K";
 }
 
 function clipStatusMessage(value: string) {
@@ -120,11 +116,7 @@ export function TopBar({
   const [aiTestMessage, setAITestMessage] = useState("");
   const [aiTestStatus, setAITestStatus] = useState<"error" | "idle" | "success" | "testing">("idle");
   const [saveFeedbackVisible, setSaveFeedbackVisible] = useState(false);
-  const commandShortcutLabel = useSyncExternalStore(
-    subscribeCommandShortcut,
-    getCommandShortcutLabel,
-    () => "Ctrl K",
-  );
+  const [commandShortcutLabel, setCommandShortcutLabel] = useState("Ctrl K");
   const RailIcon = railOpen ? PanelLeftClose : PanelLeftOpen;
   const InspectorIcon = inspectorOpen ? PanelRightClose : PanelRightOpen;
   const ExportIcon = exportReady ? CheckCircle2 : Download;
@@ -168,6 +160,7 @@ export function TopBar({
       const restoredConfig = readAIProviderConfig();
       setAIProviderConfig(restoredConfig);
       setSavedAIProviderConfig(restoredConfig);
+      setCommandShortcutLabel(getCommandShortcutLabel());
     }, 0);
 
     return () => {
