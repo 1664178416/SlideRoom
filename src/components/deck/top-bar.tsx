@@ -110,6 +110,7 @@ export function TopBar({
   const { language, t } = usePreferences();
   const controlsRef = useRef<HTMLDivElement>(null);
   const saveFeedbackTimerRef = useRef<number | null>(null);
+  const aiTestRequestIdRef = useRef(0);
   const [aiProviderConfig, setAIProviderConfig] = useState<AIProviderConfig>(defaultAIProviderConfig);
   const [savedAIProviderConfig, setSavedAIProviderConfig] = useState<AIProviderConfig>(defaultAIProviderConfig);
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
@@ -175,6 +176,7 @@ export function TopBar({
     key: K,
     value: AIProviderConfig[K],
   ) {
+    aiTestRequestIdRef.current += 1;
     setSaveFeedbackVisible(false);
     setAITestStatus("idle");
     setAITestMessage("");
@@ -203,6 +205,8 @@ export function TopBar({
   async function testAISettings() {
     if (!draftAIConfigured || aiTestStatus === "testing") return;
 
+    const aiTestRequestId = aiTestRequestIdRef.current + 1;
+    aiTestRequestIdRef.current = aiTestRequestId;
     setSaveFeedbackVisible(false);
     setAITestStatus("testing");
     setAITestMessage("");
@@ -219,6 +223,8 @@ export function TopBar({
             ? "连接测试。只回复：连接正常"
             : "Connection test. Reply only: Connected",
       });
+      if (aiTestRequestId !== aiTestRequestIdRef.current) return;
+
       const providerLabel =
         testResult.providerMode === "responses"
           ? "Responses API"
@@ -228,6 +234,8 @@ export function TopBar({
       setAITestStatus("success");
       setAITestMessage(`${t("settings.testPassed")} · ${providerLabel}`);
     } catch (error) {
+      if (aiTestRequestId !== aiTestRequestIdRef.current) return;
+
       setAITestStatus("error");
       setAITestMessage(
         clipStatusMessage(error instanceof Error ? error.message : String(error)),
@@ -238,6 +246,7 @@ export function TopBar({
   function clearAISettings() {
     const clearedConfig = clearAIProviderConfig();
 
+    aiTestRequestIdRef.current += 1;
     setAIProviderConfig(clearedConfig);
     setSavedAIProviderConfig(clearedConfig);
     setApiKeyVisible(false);
