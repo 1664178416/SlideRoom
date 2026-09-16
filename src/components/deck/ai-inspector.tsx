@@ -939,6 +939,7 @@ export function AIInspector({ deckId, deckSlides, slide }: AIInspectorProps) {
     () => false,
   );
   const generationLockedRef = useRef(false);
+  const generationAbortControllerRef = useRef<AbortController | null>(null);
   const visibleSlideIdRef = useRef(slide.id);
   const draftPersistTimerRef = useRef<number | null>(null);
   const draftsSyncSuspendedRef = useRef(false);
@@ -1070,6 +1071,12 @@ export function AIInspector({ deckId, deckSlides, slide }: AIInspectorProps) {
 
   useEffect(() => {
     visibleSlideIdRef.current = slide.id;
+
+    return () => {
+      generationAbortControllerRef.current?.abort();
+      generationAbortControllerRef.current = null;
+      generationLockedRef.current = false;
+    };
   }, [slide.id]);
 
   const persistInspectorState = useCallback(
@@ -1205,6 +1212,8 @@ export function AIInspector({ deckId, deckSlides, slide }: AIInspectorProps) {
     }
 
     generationLockedRef.current = true;
+    const generationAbortController = new AbortController();
+    generationAbortControllerRef.current = generationAbortController;
 
     const displayPrompt = promptKey ? t(promptKey) : clean;
     messageCounter.current += 1;
@@ -1266,7 +1275,10 @@ export function AIInspector({ deckId, deckSlides, slide }: AIInspectorProps) {
         language,
         maxOutputTokens: promptKey ? resolvePresetOutputTokens(resolvedAction, language) : resolveQuestionOutputTokens(clean),
         prompt: modelPrompt,
+        signal: generationAbortController.signal,
       });
+      if (generationAbortController.signal.aborted) return;
+
       const content = promptKey
         ? compactPresetModelContent(generatedContent, resolvedAction, language)
         : generatedContent;
@@ -1281,6 +1293,8 @@ export function AIInspector({ deckId, deckSlides, slide }: AIInspectorProps) {
         promptKey,
       };
     } catch (error) {
+      if (generationAbortController.signal.aborted) return;
+
       assistantMessage = {
         id: assistantMessageId,
         role: "assistant",
@@ -1291,9 +1305,14 @@ export function AIInspector({ deckId, deckSlides, slide }: AIInspectorProps) {
         promptKey,
       };
     } finally {
-      generationLockedRef.current = false;
+      if (generationAbortControllerRef.current === generationAbortController) {
+        generationAbortControllerRef.current = null;
+        generationLockedRef.current = false;
+      }
       setGeneratingRequest((current) => (current?.id === assistantMessageId ? null : current));
     }
+
+    if (!assistantMessage) return;
 
     if (visibleSlideIdRef.current === slide.id) {
       setSelectedAssistantMessageId(assistantMessage.id);

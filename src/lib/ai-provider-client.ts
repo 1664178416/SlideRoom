@@ -27,11 +27,13 @@ export async function generateAI({
   language,
   maxOutputTokens,
   prompt,
+  signal,
 }: {
   config: AIProviderConfig;
   language: Language;
   maxOutputTokens?: number;
   prompt: string;
+  signal?: AbortSignal;
 }) {
   let response: Response;
 
@@ -47,8 +49,11 @@ export async function generateAI({
         "Content-Type": "application/json",
       },
       method: "POST",
+      signal,
     });
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw error;
+
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
       language === "zh"
@@ -75,6 +80,14 @@ export async function generateAI({
       language === "zh"
         ? "AI 代理返回格式不正确。"
         : "The AI proxy returned an unexpected response shape.",
+    );
+  }
+
+  if (!response.ok && result.ok) {
+    throw new Error(
+      language === "zh"
+        ? `AI 代理返回了异常状态：HTTP ${response.status}。`
+        : `The AI proxy returned an unexpected HTTP status: ${response.status}.`,
     );
   }
 

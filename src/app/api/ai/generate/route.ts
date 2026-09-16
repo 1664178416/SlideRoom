@@ -319,6 +319,7 @@ async function requestProvider({
   language,
   mode,
   parseContent,
+  requestSignal,
 }: {
   body: unknown;
   config: AIProviderConfig;
@@ -326,6 +327,7 @@ async function requestProvider({
   language: Language;
   mode: ProviderMode;
   parseContent: (payload: unknown) => string;
+  requestSignal: AbortSignal;
 }): Promise<ProviderAttempt> {
   try {
     const providerResponse = await fetch(endpoint, {
@@ -335,7 +337,7 @@ async function requestProvider({
         "Content-Type": "application/json",
       },
       method: "POST",
-      signal: AbortSignal.timeout(providerRequestTimeoutMs),
+      signal: AbortSignal.any([requestSignal, AbortSignal.timeout(providerRequestTimeoutMs)]),
     });
     const providerPayload = await readProviderPayload(providerResponse);
 
@@ -367,6 +369,8 @@ async function requestProvider({
       ok: true,
     };
   } catch (error) {
+    if (requestSignal.aborted) throw error;
+
     return {
       endpoint,
       message: redactSensitiveText(getNetworkErrorMessage(error, endpoint, language), config),
@@ -473,6 +477,7 @@ export async function POST(request: NextRequest) {
       language,
       mode: "responses",
       parseContent: parseResponsesContent,
+      requestSignal: request.signal,
     });
 
     if (responsesAttempt.ok) {
@@ -516,6 +521,7 @@ export async function POST(request: NextRequest) {
       language,
       mode: "chat_completions",
       parseContent: parseChatCompletionsContent,
+      requestSignal: request.signal,
     });
 
     if (chatAttempt.ok) {
