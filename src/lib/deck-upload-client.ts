@@ -91,6 +91,10 @@ export async function uploadDeckFile(file: File): Promise<UploadedDeckSession> {
     throw new UploadDeckFileError(result.errorCode, result.message);
   }
 
+  if (!response.ok) {
+    throw new UploadDeckFileError("upload_failed", fallbackUploadErrorMessage);
+  }
+
   return result.session;
 }
 
