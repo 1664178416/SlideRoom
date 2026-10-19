@@ -15,10 +15,12 @@ export function normalizeDeckFileName(fileName: string, fallback = "deck.pptx") 
     .pop();
   const normalized = (lastPathSegment ?? "")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, maxDeckFileNameLength);
+    .trim();
 
-  return normalized || fallback;
+  if (normalized.length <= maxDeckFileNameLength) return normalized || fallback;
+
+  const extension = normalized.match(/\.pptx?$/i)?.[0] ?? "";
+  return `${normalized.slice(0, maxDeckFileNameLength - extension.length)}${extension}`;
 }
 
 export function getDeckFileStem(fileName: string, fallback = "deck") {
