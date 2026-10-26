@@ -86,6 +86,8 @@ export async function fetchUploadedDeckSession(deckId: string) {
     return null;
   }
 
+  if (!response.ok) return null;
+
   const result = await readDeckResponse(response);
 
   if (!result.ok) return null;
