@@ -22,7 +22,13 @@ const preferenceInitScript = `
       var pair = document.cookie.split("; ").find(function (item) {
         return item.indexOf(key + "=") === 0;
       });
-      return pair ? decodeURIComponent(pair.slice(key.length + 1)) : null;
+      if (!pair) return null;
+
+      try {
+        return decodeURIComponent(pair.slice(key.length + 1));
+      } catch (error) {
+        return null;
+      }
     }
 
     function readStorage(key) {
