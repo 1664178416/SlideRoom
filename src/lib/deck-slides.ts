@@ -51,13 +51,17 @@ function getSlideContextByPageNumber(session: UploadedDeckSession) {
   return new Map(session.slides.map((slide) => [slide.pageNumber, slide]));
 }
 
-function getImportedSlideTitle(pageNumber: number, context?: UploadedSlideContext) {
+function getImportedSlideTitleCandidate(context?: UploadedSlideContext) {
   const lines = getExtractedLines(context);
   const text = normalizeText(lines[0] ?? context?.extractedText ?? "");
-  const candidate = text
+  return text
     .split(sentenceSeparatorPattern)
     .map((item) => item.trim())
     .find((item) => item.length >= 2 && !/^slide\s*\d+$/i.test(item));
+}
+
+function getImportedSlideTitle(pageNumber: number, context?: UploadedSlideContext) {
+  const candidate = getImportedSlideTitleCandidate(context);
 
   return candidate ? clipText(candidate, 34) : `Slide ${String(pageNumber).padStart(2, "0")}`;
 }
@@ -65,7 +69,23 @@ function getImportedSlideTitle(pageNumber: number, context?: UploadedSlideContex
 function getImportedSlideSummary(pageNumber: number, context?: UploadedSlideContext) {
   const lines = getExtractedLines(context);
   const title = getImportedSlideTitle(pageNumber, context).toLowerCase();
-  const summaryLines = lines.filter((line) => line.toLowerCase() !== title).slice(0, 3);
+  const titleCandidate = getImportedSlideTitleCandidate(context);
+  const summaryLines = lines
+    .flatMap((line, index) => {
+      if (index === 0 && titleCandidate) {
+        const remainder = line
+          .slice(titleCandidate.length)
+          .replace(/^[.!?;\u3002\uff01\uff1f\uff1b]+/, "")
+          .trim();
+
+        return remainder ? [remainder] : [];
+      }
+
+      if (line.toLowerCase() === title || (index === 0 && /^slide\s*\d+$/i.test(line))) return [];
+
+      return [line];
+    })
+    .slice(0, 3);
   const extractedText = normalizeText(summaryLines.join(" ") || context?.extractedText || "");
 
   if (extractedText) {
