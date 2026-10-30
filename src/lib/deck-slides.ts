@@ -73,8 +73,9 @@ function getImportedSlideSummary(pageNumber: number, context?: UploadedSlideCont
   const summaryLines = lines
     .flatMap((line, index) => {
       if (index === 0 && titleCandidate) {
+        const titleEnd = line.indexOf(titleCandidate) + titleCandidate.length;
         const remainder = line
-          .slice(titleCandidate.length)
+          .slice(titleEnd)
           .replace(/^[.!?;\u3002\uff01\uff1f\uff1b]+/, "")
           .trim();
 
