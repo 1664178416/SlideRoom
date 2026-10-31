@@ -146,7 +146,7 @@ function decodeXmlEntities(value: string) {
 
 function getXmlAttribute(attributes: string, name: string) {
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = attributes.match(new RegExp(`\\b${escapedName}=(["'])([\\s\\S]*?)\\1`));
+  const match = attributes.match(new RegExp(`\\b${escapedName}\\s*=\\s*(["'])([\\s\\S]*?)\\1`));
 
   return match ? decodeXmlEntities(match[2]) : "";
 }
