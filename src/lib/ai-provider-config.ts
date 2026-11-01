@@ -60,13 +60,11 @@ function notifyAIProviderConfigChange() {
 }
 
 export function readAIProviderConfig(): AIProviderConfig {
-  if (typeof window === "undefined") return memoryAIProviderConfig;
+  if (typeof window === "undefined" || memoryAIProviderConfigFallbackActive) return memoryAIProviderConfig;
 
   try {
     const storedConfig = window.localStorage.getItem(aiProviderConfigStorageKey);
     if (!storedConfig) {
-      if (memoryAIProviderConfigFallbackActive) return memoryAIProviderConfig;
-
       memoryAIProviderConfig = defaultAIProviderConfig;
       return defaultAIProviderConfig;
     }
@@ -107,6 +105,7 @@ export function clearAIProviderConfig() {
   try {
     window.localStorage.removeItem(aiProviderConfigStorageKey);
   } catch {
+    memoryAIProviderConfigFallbackActive = true;
     // Storage can be unavailable in private mode or constrained environments.
   }
 
