@@ -434,7 +434,9 @@ export async function POST(request: NextRequest) {
   let payload: GenerateRequest;
 
   try {
-    payload = (await request.json()) as GenerateRequest;
+    const body: unknown = await request.json();
+    if (!isRecord(body)) return errorResponse("JSON body must be an object.");
+    payload = body;
   } catch {
     return errorResponse("Invalid JSON body.");
   }
