@@ -491,6 +491,11 @@ export default function DeckWorkspacePage() {
   const handleStageKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
       if (commandOpen || aiSettingsOpen || settingsOpen) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.isContentEditable ||
+        target?.closest("a,button,input,select,textarea,[role='button'],[role='tab'],[contenteditable='true']")
+      ) return;
       if (!navigateBySlideKey(event.key, event.shiftKey)) return;
 
       event.preventDefault();
