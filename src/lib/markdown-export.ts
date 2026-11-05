@@ -8,7 +8,7 @@ export function formatMarkdownInline(value: string, emptyValue: string) {
   const trimmedValue = value.replace(/\s+/g, " ").trim();
   if (!trimmedValue) return emptyValue;
 
-  const escapedValue = trimmedValue.replace(/([\\`*_{}\[\]()#+!|>])/g, "\\$1");
+  const escapedValue = trimmedValue.replace(/([\\`*_{}\[\]()#+!|>&])/g, "\\$1");
 
   return escapedValue
     .replace(/^([-+])\s/, "\\$1 ")
