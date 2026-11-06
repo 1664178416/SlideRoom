@@ -134,14 +134,19 @@ function decodeXmlCodePoint(match: string, rawCodePoint: string, radix: number) 
 }
 
 function decodeXmlEntities(value: string) {
-  return value
-    .replace(/&#x([0-9a-fA-F]+);/g, (match, codePoint: string) => decodeXmlCodePoint(match, codePoint, 16))
-    .replace(/&#(\d+);/g, (match, codePoint: string) => decodeXmlCodePoint(match, codePoint, 10))
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, "\"")
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, "&");
+  const namedEntities: Record<string, string> = {
+    lt: "<",
+    gt: ">",
+    quot: "\"",
+    apos: "'",
+    amp: "&",
+  };
+
+  return value.replace(/&(#x[0-9a-fA-F]+|#\d+|lt|gt|quot|apos|amp);/g, (match, entity: string) => {
+    if (entity.startsWith("#x")) return decodeXmlCodePoint(match, entity.slice(2), 16);
+    if (entity.startsWith("#")) return decodeXmlCodePoint(match, entity.slice(1), 10);
+    return namedEntities[entity] ?? match;
+  });
 }
 
 function getXmlAttribute(attributes: string, name: string) {
@@ -216,7 +221,7 @@ function getRelationships(xml: string, baseDirectory: string) {
 
     return {
       id,
-      target: target ? normalizeRelationshipTarget(baseDirectory, decodeXmlEntities(target)) : "",
+      target: target ? normalizeRelationshipTarget(baseDirectory, target) : "",
       type,
     };
   });
