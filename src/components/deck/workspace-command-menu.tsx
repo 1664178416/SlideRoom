@@ -226,7 +226,7 @@ function WorkspaceCommandMenuDialog({
 
     if (event.key === "Enter") {
       event.preventDefault();
-      resolvedActiveItem?.run();
+      if (query === deferredQuery) resolvedActiveItem?.run();
     }
   }
 
