@@ -27,7 +27,9 @@ export function formatMarkdownQuote(value: string, emptyValue: string) {
   const trimmedValue = value.trim();
   if (!trimmedValue) return [emptyValue];
 
-  return trimmedValue.split(/\r?\n/).map((line) => `> ${line.replace(/^>+/, (marker) => "\\".repeat(marker.length) + marker) || " "}`);
+  return trimmedValue
+    .split(/\r?\n/)
+    .map((line) => `> ${line.replace(/&/g, "\\&").replace(/^>+/, (marker) => "\\".repeat(marker.length) + marker) || " "}`);
 }
 
 export function formatMarkdownListItems(values: string[], emptyValue: string) {
