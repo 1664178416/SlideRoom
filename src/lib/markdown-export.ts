@@ -29,7 +29,12 @@ export function formatMarkdownQuote(value: string, emptyValue: string) {
 
   return trimmedValue
     .split(/\r?\n/)
-    .map((line) => `> ${line.replace(/&/g, "\\&").replace(/^>+/, (marker) => "\\".repeat(marker.length) + marker) || " "}`);
+    .map((line) =>
+      `> ${line
+        .replace(/\\/g, "\\\\")
+        .replace(/&/g, "\\&")
+        .replace(/^>+/, (marker) => "\\".repeat(marker.length) + marker) || " "}`,
+    );
 }
 
 export function formatMarkdownListItems(values: string[], emptyValue: string) {
