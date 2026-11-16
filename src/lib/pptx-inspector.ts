@@ -165,21 +165,20 @@ function clipExtractedText(value: string) {
 }
 
 function extractTextRuns(xml: string) {
-  return [...xml.matchAll(/<a:t[^>]*>([\s\S]*?)<\/a:t>/g)]
-    .map((match) => compactLine(decodeXmlEntities(match[1])))
-    .filter(Boolean);
+  return [...xml.matchAll(/<a:t\b[^>]*>([\s\S]*?)<\/a:t>|<a:br\b[^>]*>/g)]
+    .map((match) => match[1] === undefined ? " " : decodeXmlEntities(match[1]));
 }
 
 function extractTextFromXml(xml: string) {
   const paragraphs = [...xml.matchAll(/<a:p(?:\s[^>]*)?>([\s\S]*?)<\/a:p>/g)]
-    .map((match) => compactLine(extractTextRuns(match[1]).join(" ")))
+    .map((match) => compactLine(extractTextRuns(match[1]).join("")))
     .filter(Boolean);
 
   if (paragraphs.length > 0) {
     return clipExtractedText(paragraphs.join("\n"));
   }
 
-  return clipExtractedText(extractTextRuns(xml).join(" "));
+  return clipExtractedText(compactLine(extractTextRuns(xml).join("")));
 }
 
 function getSlidePageNumber(name: string, prefix: string) {
