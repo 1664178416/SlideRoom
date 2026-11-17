@@ -165,7 +165,7 @@ function clipExtractedText(value: string) {
 }
 
 function extractTextRuns(xml: string) {
-  return [...xml.matchAll(/<a:t\b[^>]*>([\s\S]*?)<\/a:t>|<a:br\b[^>]*>/g)]
+  return [...xml.matchAll(/<a:t\b(?![^>]*\/>)[^>]*>([\s\S]*?)<\/a:t>|<a:br\b[^>]*>/g)]
     .map((match) => match[1] === undefined ? " " : decodeXmlEntities(match[1]));
 }
 
